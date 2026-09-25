@@ -2,49 +2,89 @@
 
 ## Objectivo
 
-O QualPacote compara ofertas móveis pela capacidade que o utilizador consegue aproveitar dentro do orçamento e do período informado.
+O QualPacote é uma central de inteligência de saldos para Angola. Recebe o orçamento e o resultado que o utilizador pretende obter, cruza pacotes, tarifas normais e restrições conhecidas, e produz opções práticas e explicáveis.
 
 ## Stack
 
 - PHP 8.2+
 - MySQL 8 / MariaDB com InnoDB
 - HTML/CSS/JavaScript sem etapa de build
-- Apache/Nginx
-- GitHub Actions apenas para lint e testes; sem deploy automático
+- GitHub Actions apenas para lint e testes
+- deploy manual
 
-## Componentes
+## Site público
 
-### Site público
+`index.php` começa pelo orçamento e por quatro usos independentes: internet, chamadas, SMS e redes sociais.
 
-`index.php` recebe orçamento, prioridade, intensidade de uso, período necessário, horário predominante, padrão de chamadas, operadoras disponíveis e, opcionalmente, GB/minutos para afinação. A resposta mostra até cinco opções ordenadas.
+Para cada uso seleccionado, o utilizador pode:
 
-### Motor de recomendação
+- maximizar o que recebe pelo dinheiro; ou
+- informar um mínimo concreto.
 
-`app/RecommendationEngine.php` é determinístico e não depende de IA. O motor converte o perfil em necessidades estimadas para o período escolhido, calcula renovações que cabem no orçamento, aplica validade, reduz o valor de benefícios incompatíveis com o horário/rede do utilizador, mede o atendimento do perfil e ordena por encaixe, cobertura e aproveitamento do orçamento.
+Chamadas também podem ser descritas por número aproximado de chamadas e duração média. Quando vários usos são escolhidos, pode ser indicada uma prioridade. O período pode ser fechado (1, 3, 7, 15, 30 ou 60 dias) ou “usar até acabar”. Horário, rede de destino e cartões disponíveis ficam como afinação.
 
-### Catálogo versionado
+## Motor de recomendação
 
-`plans` guarda a identidade do plano. `plan_versions` guarda cada alteração de preço, validade, código, fonte e data de verificação. `benefits` decompõe a oferta em DATA/MB, VOICE/MIN, SMS/SMS e SOCIAL/MB, com horário, rede e aplicações quando aplicável.
+`app/RecommendationEngine.php` é determinístico.
 
-Ao actualizar um plano pelo admin, uma nova versão é criada. A versão anterior permanece na base para auditoria.
+O motor:
 
-### Administração
+1. elimina alternativas fora do orçamento;
+2. calcula renovações apenas quando necessárias para cobrir o período;
+3. reduz benefícios que não servem ao horário ou à rede informados;
+4. verifica mínimos explícitos antes de premiar volume adicional;
+5. maximiza os serviços escolhidos dentro do orçamento;
+6. mantém o saldo normal como candidato real;
+7. impede que a mesma carteira de saldo seja duplicada entre voz, dados e SMS;
+8. calcula equivalência económica de pacotes contra tarifas normais quando os dados são completos;
+9. ordena primeiro as opções que cumprem os requisitos e, depois, pelo valor útil para o objectivo indicado.
 
-`/admin/` permite autenticação, visão de frescura do catálogo, gestão de operadoras, criação/actualização versionada de planos e publicação/despublicação. Escritas usam CSRF e queries preparadas.
+O score existe apenas internamente para ordenação. Não é apresentado ao consumidor.
 
-### Vigilância de fontes
+## Catálogo de pacotes
 
-`scripts/check_sources.php` consulta as fontes dos planos publicados, calcula hash do conteúdo e regista alterações em `source_checks`. O detector não altera tarifários: apenas sinaliza a necessidade de revisão.
+`plans` guarda a identidade do pacote. `plan_versions` guarda preço, validade, código, fonte e data de verificação. `benefits` decompõe DATA/MB, VOICE/MIN, SMS/SMS e SOCIAL/MB, incluindo rede, horário e aplicações.
 
-### Estatísticas
+Cada alteração cria nova versão; o histórico não é sobrescrito.
 
-`search_events` guarda somente dados agregáveis da procura: orçamento, objectivo, intensidade, período, horário, padrão de chamadas e quantidade de resultados. Não guarda telefone, nome, email, IP ou identificador pessoal.
+## Tarifas de saldo normal
 
-## Evoluções previstas
+`tariffs` representa um tarifário normal/pre-pago de uma operadora. Uma operadora pode ter mais de um; `is_default` identifica a referência principal.
 
-1. Carteiras partilhadas, como MIN/SMS no mesmo saldo.
-2. Colectores específicos por operadora.
-3. Fila de revisão de alterações detectadas.
-4. WhatsApp/USSD/API como novos canais.
-5. Cobertura e qualidade de rede por zona quando houver dados confiáveis.
-6. Comparação com saldo normal e tarifários base.
+`tariff_versions` guarda fonte, verificação, validade eventual do saldo e histórico.
+
+`tariff_rates` guarda o preço por unidade:
+
+- VOICE em Kz/min, com mesma rede/outras redes e horário quando necessário;
+- DATA em Kz/MB;
+- SMS em Kz/SMS.
+
+Tarifas publicadas entram directamente na recomendação e também permitem calcular o custo equivalente em saldo normal de um pacote.
+
+## Administração
+
+`/admin/` permite gerir:
+
+- operadoras;
+- planos e versões;
+- tarifas de saldo e versões;
+- preços por minuto/MB/SMS;
+- fontes e datas de verificação;
+- publicação e despublicação.
+
+O dashboard sinaliza operadoras sem tarifa padrão, itens sem revisão recente e fontes alteradas.
+
+## Vigilância de fontes
+
+`scripts/check_sources.php` verifica fontes de planos e tarifas publicados, calcula hash e regista alterações em `source_checks`. A rotina nunca altera automaticamente preços ou benefícios.
+
+## Privacidade
+
+`search_events` guarda apenas dados agregáveis da procura. Não guarda nome, telefone, email, IP ou identificador pessoal.
+
+## Próximas evoluções
+
+1. Representação explícita de carteiras partilhadas de pacote, como “MIN/SMS” no mesmo saldo.
+2. Colectores específicos por operadora com fila de revisão humana.
+3. Qualidade/cobertura de rede por zona quando houver dados confiáveis.
+4. Combinações de dois ou mais pacotes quando a activação conjunta for oficialmente permitida.

@@ -73,6 +73,58 @@ CREATE TABLE IF NOT EXISTS benefits (
     INDEX idx_benefits_type (type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Tarifas de consumo directo do saldo. São separadas dos pacotes porque o mesmo
+-- saldo pode ser gasto em voz, dados ou SMS e não pode ser duplicado entre métricas.
+CREATE TABLE IF NOT EXISTS tariffs (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    operator_id INT UNSIGNED NOT NULL,
+    name VARCHAR(180) NOT NULL,
+    is_default TINYINT(1) NOT NULL DEFAULT 0,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    published TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    CONSTRAINT fk_tariffs_operator FOREIGN KEY (operator_id) REFERENCES operators(id),
+    INDEX idx_tariffs_operator (operator_id),
+    INDEX idx_tariffs_public (active, published),
+    INDEX idx_tariffs_default (operator_id, is_default)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS tariff_versions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    tariff_id INT UNSIGNED NOT NULL,
+    version_no INT UNSIGNED NOT NULL,
+    balance_validity_days SMALLINT UNSIGNED NULL,
+    source_url VARCHAR(600) NOT NULL,
+    source_checked_at DATE NOT NULL,
+    notes TEXT NULL,
+    active_from DATETIME NOT NULL,
+    active_to DATETIME NULL,
+    created_by INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL,
+    CONSTRAINT fk_tariff_versions_tariff FOREIGN KEY (tariff_id) REFERENCES tariffs(id),
+    CONSTRAINT fk_tariff_versions_admin FOREIGN KEY (created_by) REFERENCES admins(id) ON DELETE SET NULL,
+    UNIQUE KEY uq_tariff_version (tariff_id, version_no),
+    INDEX idx_tariff_versions_current (tariff_id, version_no),
+    INDEX idx_tariff_versions_checked (source_checked_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS tariff_rates (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    tariff_version_id INT UNSIGNED NOT NULL,
+    service_type ENUM('DATA','VOICE','SMS') NOT NULL,
+    unit ENUM('MB','MIN','SMS') NOT NULL,
+    price_kz_per_unit DECIMAL(14,4) NOT NULL,
+    network_scope ENUM('ALL','ONNET','OFFNET') NOT NULL DEFAULT 'ALL',
+    start_time TIME NULL,
+    end_time TIME NULL,
+    label VARCHAR(255) NULL,
+    created_at DATETIME NOT NULL,
+    CONSTRAINT fk_tariff_rates_version FOREIGN KEY (tariff_version_id) REFERENCES tariff_versions(id) ON DELETE CASCADE,
+    INDEX idx_tariff_rates_version (tariff_version_id),
+    INDEX idx_tariff_rates_service (service_type, network_scope)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS search_events (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     budget_kz DECIMAL(12,2) NOT NULL,
