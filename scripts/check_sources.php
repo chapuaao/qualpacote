@@ -45,10 +45,17 @@ foreach ($urls as $url) {
     }
 
     $previous = $db->prepare(
-        'SELECT content_hash FROM source_checks WHERE source_url = ? AND content_hash IS NOT NULL ORDER BY id DESC LIMIT 1'
+        'SELECT content_hash, changed, checked_at FROM source_checks WHERE source_url = ? AND content_hash IS NOT NULL ORDER BY id DESC LIMIT 1'
     );
     $previous->execute([$url]);
-    $previousHash = $previous->fetchColumn() ?: null;
+    $previousRow = $previous->fetch(PDO::FETCH_ASSOC) ?: null;
+    $previousHash = $previousRow['content_hash'] ?? null;
+
+    $verifiedStmt = $db->prepare(
+        'SELECT MAX(source_checked_at) FROM plan_versions WHERE source_url = ?'
+    );
+    $verifiedStmt->execute([$url]);
+    $catalogCheckedAt = $verifiedStmt->fetchColumn() ?: null;
 
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -74,8 +81,16 @@ foreach ($urls as $url) {
     }
 
     $hash = hash('sha256', (string) $body);
-    $changed = $previousHash !== null && !hash_equals((string) $previousHash, $hash);
+    $contentChanged = $previousHash !== null && !hash_equals((string) $previousHash, $hash);
+    $unreviewedChange = false;
 
+    if (!$contentChanged && $previousRow && (int) $previousRow['changed'] === 1) {
+        $changeDate = substr((string) $previousRow['checked_at'], 0, 10);
+        $catalogDate = $catalogCheckedAt ? substr((string) $catalogCheckedAt, 0, 10) : null;
+        $unreviewedChange = $catalogDate === null || $catalogDate < $changeDate;
+    }
+
+    $changed = $contentChanged || $unreviewedChange;
     $insert->execute([$url, $status, $hash, $changed ? 1 : 0, null]);
 
     fwrite(
