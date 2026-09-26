@@ -2,89 +2,72 @@
 
 ## Objectivo
 
-O QualPacote é uma central de inteligência de saldos para Angola. Recebe o orçamento e o resultado que o utilizador pretende obter, cruza pacotes, tarifas normais e restrições conhecidas, e produz opções práticas e explicáveis.
+O QualPacote funciona como uma central de inteligência de saldos: recebe o orçamento e o resultado que o utilizador quer obter, confronta pacotes e tarifas normais verificadas e calcula a alternativa que entrega mais utilidade nas condições informadas.
 
 ## Stack
 
 - PHP 8.2+
 - MySQL 8 / MariaDB com InnoDB
 - HTML/CSS/JavaScript sem etapa de build
-- GitHub Actions apenas para lint e testes
-- deploy manual
+- Apache/Nginx
+- GitHub Actions apenas para lint e testes; sem deploy automático
 
-## Site público
+## Componentes
 
-`index.php` começa pelo orçamento e por quatro usos independentes: internet, chamadas, SMS e redes sociais.
+### Site público
 
-Para cada uso seleccionado, o utilizador pode:
+`index.php` recebe orçamento, serviços seleccionados, objectivos de maximização ou mínimos concretos, período, horário predominante, destino de chamadas e operadoras disponíveis. Depois do cálculo, a interface desloca-se para a secção de resultados.
 
-- maximizar o que recebe pelo dinheiro; ou
-- informar um mínimo concreto.
+### Motor de recomendação
 
-Chamadas também podem ser descritas por número aproximado de chamadas e duração média. Quando vários usos são escolhidos, pode ser indicada uma prioridade. O período pode ser fechado (1, 3, 7, 15, 30 ou 60 dias) ou “usar até acabar”. Horário, rede de destino e cartões disponíveis ficam como afinação.
+`app/RecommendationEngine.php` é determinístico. Trata primeiro restrições e capacidade útil e só depois ordena as alternativas.
 
-## Motor de recomendação
+O motor considera:
 
-`app/RecommendationEngine.php` é determinístico.
+- orçamento e número de ciclos que cabem nele;
+- validade e cobertura do período;
+- horários exactos de cada benefício;
+- mesma rede, outras redes ou todas as redes;
+- dados de aplicações específicas;
+- carteiras partilhadas de unidades sem duplicação;
+- quotas diárias não acumuláveis;
+- FUP quando publicada;
+- requisitos prévios, como necessidade de um plano FLEX activo;
+- comparação com saldo normal quando existem tarifas suficientes.
 
-O motor:
+Quando o horário escolhido pelo utilizador exclui um benefício, a quantidade é retirada integralmente da capacidade útil e a explicação informa a quantidade exacta afectada. Não se aplicam percentagens arbitrárias para simular a perda.
 
-1. elimina alternativas fora do orçamento;
-2. calcula renovações apenas quando necessárias para cobrir o período;
-3. reduz benefícios que não servem ao horário ou à rede informados;
-4. verifica mínimos explícitos antes de premiar volume adicional;
-5. maximiza os serviços escolhidos dentro do orçamento;
-6. mantém o saldo normal como candidato real;
-7. impede que a mesma carteira de saldo seja duplicada entre voz, dados e SMS;
-8. calcula equivalência económica de pacotes contra tarifas normais quando os dados são completos;
-9. ordena primeiro as opções que cumprem os requisitos e, depois, pelo valor útil para o objectivo indicado.
+### Catálogo versionado
 
-O score existe apenas internamente para ordenação. Não é apresentado ao consumidor.
+`plans` guarda a identidade do plano. `plan_versions` guarda cada alteração de preço, validade, activação, fonte e data de verificação. `benefits` decompõe DATA/VOICE/SMS/SOCIAL por quantidade, rede, horário e aplicação.
 
-## Catálogo de pacotes
+`tariffs`, `tariff_versions` e `tariff_rates` representam o saldo normal e permitem calcular quantos minutos, MB ou SMS um valor compra sem pacote.
 
-`plans` guarda a identidade do pacote. `plan_versions` guarda preço, validade, código, fonte e data de verificação. `benefits` decompõe DATA/MB, VOICE/MIN, SMS/SMS e SOCIAL/MB, incluindo rede, horário e aplicações.
+Ao actualizar um plano ou tarifa pelo admin, uma nova versão é criada e a anterior permanece disponível para auditoria.
 
-Cada alteração cria nova versão; o histórico não é sobrescrito.
+### Catálogo verificado
 
-## Tarifas de saldo normal
+A revisão de 26/09/2026 adiciona 113 opções de planos/aditivos e 248 linhas de benefícios a partir de fontes oficiais. Os ficheiros estão em `database/migrations/catalog_20260926/` e as fontes em `docs/CATALOG_SOURCES_20260926.md`.
 
-`tariffs` representa um tarifário normal/pre-pago de uma operadora. Uma operadora pode ter mais de um; `is_default` identifica a referência principal.
+### Administração
 
-`tariff_versions` guarda fonte, verificação, validade eventual do saldo e histórico.
+`/admin/` permite autenticação, visão de frescura do catálogo, gestão de operadoras, planos, benefícios, tarifas normais, fontes e publicação/despublicação. Escritas usam CSRF e queries preparadas.
 
-`tariff_rates` guarda o preço por unidade:
+### Vigilância de fontes
 
-- VOICE em Kz/min, com mesma rede/outras redes e horário quando necessário;
-- DATA em Kz/MB;
-- SMS em Kz/SMS.
+`scripts/check_sources.php` consulta as fontes dos planos e tarifas publicados, calcula hash do conteúdo e regista alterações em `source_checks`. O detector não altera tarifários: sinaliza a necessidade de revisão.
 
-Tarifas publicadas entram directamente na recomendação e também permitem calcular o custo equivalente em saldo normal de um pacote.
+### Estatísticas
 
-## Administração
+`search_events` guarda somente dados agregáveis da procura. Não guarda telefone, nome, email, IP ou identificador pessoal.
 
-`/admin/` permite gerir:
+## Convenções de inteligência no catálogo
 
-- operadoras;
-- planos e versões;
-- tarifas de saldo e versões;
-- preços por minuto/MB/SMS;
-- fontes e datas de verificação;
-- publicação e despublicação.
+Alguns detalhes que não justificam novas tabelas próprias são codificados de forma explícita no benefício/plano:
 
-O dashboard sinaliza operadoras sem tarifa padrão, itens sem revisão recente e fontes alteradas.
+- `SHARED:<chave>|...` identifica uma única carteira partilhada por mais de um serviço;
+- `DAILY_CAP:<MB>|...` limita a quantidade realmente acumulável no período;
+- `FUP:...` regista a política de utilização justa publicada;
+- `[REQUIREMENT] ... [/REQUIREMENT]` marca uma condição necessária antes de activar a oferta.
 
-## Vigilância de fontes
-
-`scripts/check_sources.php` verifica fontes de planos e tarifas publicados, calcula hash e regista alterações em `source_checks`. A rotina nunca altera automaticamente preços ou benefícios.
-
-## Privacidade
-
-`search_events` guarda apenas dados agregáveis da procura. Não guarda nome, telefone, email, IP ou identificador pessoal.
-
-## Próximas evoluções
-
-1. Representação explícita de carteiras partilhadas de pacote, como “MIN/SMS” no mesmo saldo.
-2. Colectores específicos por operadora com fila de revisão humana.
-3. Qualidade/cobertura de rede por zona quando houver dados confiáveis.
-4. Combinações de dois ou mais pacotes quando a activação conjunta for oficialmente permitida.
+Estas convenções são internas e nunca aparecem como metalinguagem para o utilizador.
