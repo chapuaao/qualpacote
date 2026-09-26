@@ -16,4 +16,6 @@ jobs:
       - name: Lint
         run: find . -name "*.php" -not -path "./vendor/*" -print0 | xargs -0 -n1 php -l
       - name: Recommendation engine tests
-        run: php tests/RecommendationEngineTest.php
+        run: |
+          php tests/RecommendationEngineTest.php
+          php tests/RestrictionIntelligenceTest.php
