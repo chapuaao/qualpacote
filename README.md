@@ -12,11 +12,14 @@ O QualPacote compara:
 
 - pacotes publicados;
 - saldo normal e tarifas por minuto/MB/SMS;
-- validade;
+- validade e renovações necessárias;
 - rede de destino;
-- horário;
+- horário e a quantidade exacta que fica fora do período de uso escolhido;
 - benefícios específicos de aplicações;
-- custo equivalente em saldo normal quando os dados são completos.
+- carteiras partilhadas sem duplicar unidades;
+- quotas diárias, FUP e condições prévias quando a operadora as publica;
+- custo equivalente em saldo normal quando os dados são completos;
+- canais de activação/compra quando verificados em fonte oficial.
 
 O mesmo saldo nunca é contado duas vezes em serviços diferentes.
 
@@ -39,6 +42,18 @@ O mesmo saldo nunca é contado duas vezes em serviços diferentes.
 
 Guia completo: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
+## Catálogo ampliado — 26/09/2026
+
+A revisão verificada adiciona 113 opções de planos/aditivos: 30 UNITEL, 60 Africell e 23 Movicel, com 248 linhas de benefícios decompostos por serviço, rede, horário e aplicação quando aplicável. A Movicel também recebe o tarifário base para comparação com saldo normal.
+
+Depois da migração de inteligência de saldo, importar pela ordem os ficheiros de:
+
+`database/migrations/catalog_20260926/`
+
+Instruções: [`database/migrations/catalog_20260926/README.md`](database/migrations/catalog_20260926/README.md).
+
+Fontes e critérios: [`docs/CATALOG_SOURCES_20260926.md`](docs/CATALOG_SOURCES_20260926.md).
+
 ## Administração
 
 O admin gere operadoras, planos, benefícios, tarifas normais, fontes e versões. A área **Tarifas de saldo** é a base da comparação “pacote vs. saldo normal”.
@@ -55,6 +70,7 @@ A rotina verifica fontes de planos e tarifas. Mudanças exigem revisão humana a
 
 ```bash
 php tests/RecommendationEngineTest.php
+php tests/RestrictionIntelligenceTest.php
 ```
 
 Lint:
@@ -69,3 +85,4 @@ find . -name "*.php" -not -path "./vendor/*" -print0 | xargs -0 -n1 php -l
 - [Deploy manual](docs/DEPLOY.md)
 - [Manutenção do catálogo](docs/CATALOG_MAINTENANCE.md)
 - [Regras do produto](docs/PRODUCT_RULES.md)
+- [Fontes do catálogo 26/09/2026](docs/CATALOG_SOURCES_20260926.md)
