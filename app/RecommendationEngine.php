@@ -14,36 +14,40 @@ final class RecommendationEngine
 
         foreach ($plans as $plan) {
             $candidate = $this->planCandidate($plan, $profile, $tariffs);
-            if ($candidate !== null) {
-                $candidates[] = $candidate;
-            }
+            if ($candidate !== null) $candidates[] = $candidate;
         }
 
         foreach ($tariffs as $tariff) {
             $candidate = $this->balanceCandidate($tariff, $profile);
-            if ($candidate !== null) {
-                $candidates[] = $candidate;
-            }
+            if ($candidate !== null) $candidates[] = $candidate;
         }
 
-        if ($candidates === []) {
-            return [];
-        }
+        if ($candidates === []) return [];
 
         $maxima = array_fill_keys(self::SERVICES, 0.0);
         foreach ($candidates as $candidate) {
+            if (!empty($candidate['conditional'])) continue;
             foreach (self::SERVICES as $service) {
                 $maxima[$service] = max($maxima[$service], (float) ($candidate['capacity'][$service] ?? 0));
             }
         }
+        foreach ($candidates as $candidate) {
+            foreach (self::SERVICES as $service) {
+                if ($maxima[$service] <= 0) {
+                    $maxima[$service] = max($maxima[$service], (float) ($candidate['capacity'][$service] ?? 0));
+                }
+            }
+        }
 
         foreach ($candidates as &$candidate) {
-            $assessment = $this->assess($candidate, $profile, $maxima);
-            $candidate = array_merge($candidate, $assessment);
+            $candidate = array_merge($candidate, $this->assess($candidate, $profile, $maxima));
         }
         unset($candidate);
 
         usort($candidates, static function (array $a, array $b): int {
+            $conditional = ((int) $a['conditional']) <=> ((int) $b['conditional']);
+            if ($conditional !== 0) return $conditional;
+
             $meets = ((int) $b['meets_requirements']) <=> ((int) $a['meets_requirements']);
             if ($meets !== 0) return $meets;
 
@@ -56,7 +60,7 @@ final class RecommendationEngine
             return strcmp((string) $a['title'], (string) $b['title']);
         });
 
-        return array_slice($candidates, 0, 8);
+        return array_slice($candidates, 0, 12);
     }
 
     private function normalizeProfile(array $profile): array
@@ -77,12 +81,9 @@ final class RecommendationEngine
         }
 
         $priority = strtolower((string) ($profile['priority'] ?? 'balanced'));
-        if ($priority !== 'balanced' && !in_array($priority, $services, true)) {
-            $priority = 'balanced';
-        }
+        if ($priority !== 'balanced' && !in_array($priority, $services, true)) $priority = 'balanced';
 
-        $duration = (int) ($profile['duration_days'] ?? 30);
-        $duration = max(0, min(90, $duration));
+        $duration = max(0, min(90, (int) ($profile['duration_days'] ?? 30)));
 
         $schedule = (string) ($profile['schedule'] ?? 'day');
         if (!in_array($schedule, ['day', 'mixed', 'night'], true)) $schedule = 'day';
@@ -92,10 +93,13 @@ final class RecommendationEngine
 
         $voiceMode = (string) ($profile['voice_mode'] ?? 'max');
         if (!in_array($voiceMode, ['max', 'minutes', 'calls'], true)) $voiceMode = 'max';
+
         $dataMode = (string) ($profile['data_mode'] ?? 'max');
         if (!in_array($dataMode, ['max', 'minimum'], true)) $dataMode = 'max';
+
         $smsMode = (string) ($profile['sms_mode'] ?? 'max');
         if (!in_array($smsMode, ['max', 'minimum'], true)) $smsMode = 'max';
+
         $socialMode = (string) ($profile['social_mode'] ?? 'max');
         if (!in_array($socialMode, ['max', 'minimum'], true)) $socialMode = 'max';
 
@@ -141,6 +145,8 @@ final class RecommendationEngine
         $nominal = array_fill_keys(self::SERVICES, 0.0);
         $effective = array_fill_keys(self::SERVICES, 0.0);
         $restrictions = [];
+        $notices = [];
+        $sharedGroups = [];
 
         foreach ($plan['benefits'] ?? [] as $benefit) {
             $quantity = (float) ($benefit['quantity'] ?? 0);
@@ -149,25 +155,60 @@ final class RecommendationEngine
             $service = $this->serviceKey((string) ($benefit['type'] ?? ''), (string) ($benefit['unit'] ?? ''));
             if ($service === null) continue;
 
+            $sharedKey = $this->sharedWalletKey($benefit);
+            if ($sharedKey !== null) {
+                $sharedGroups[$sharedKey][] = $benefit;
+                continue;
+            }
+
+            $totalQuantity = $quantity * $cycles;
+            $dailyCapMb = $this->dailyCapMb($benefit);
+            if ($dailyCapMb !== null && in_array($service, ['data', 'social'], true) && $profile['duration_days'] > 0) {
+                $periodCap = $dailyCapMb * max(1, $coverageDays);
+                $totalQuantity = min($totalQuantity, $periodCap);
+                $notices['Este benefício é libertado diariamente: ' . $this->quantityLabel($service, $dailyCapMb) . ' por dia/noite. Para os ' . $coverageDays . ' dias cobertos, entram no cálculo no máximo ' . $this->quantityLabel($service, $totalQuantity) . '; o saldo diário não acumula.'] = true;
+            }
+
             $timeFactor = $this->timeFactor($benefit['start_time'] ?? null, $benefit['end_time'] ?? null, $profile['schedule']);
             $networkFactor = $service === 'voice'
                 ? $this->networkFactor(strtoupper((string) ($benefit['network_scope'] ?? 'ALL')), $profile['call_scope'])
                 : 1.0;
             $factor = $timeFactor * $networkFactor;
 
-            $nominal[$service] += $quantity * $cycles;
-            $effective[$service] += $quantity * $factor * $cycles;
+            $nominal[$service] += $totalQuantity;
+            $effective[$service] += $totalQuantity * $factor;
 
-            if ($factor < 0.95 || !empty($benefit['app_scope'])) {
-                $label = $this->restrictionLabel($benefit, $factor);
-                if ($label !== '') $restrictions[$label] = true;
+            foreach ($this->restrictionLabels($benefit, $service, $totalQuantity, $profile, $timeFactor, $networkFactor) as $label) {
+                $restrictions[$label] = true;
             }
+
+            if (!empty($benefit['app_scope'])) {
+                $apps = trim((string) $benefit['app_scope']);
+                $notices[$this->quantityLabel($service, $totalQuantity) . " são exclusivos para {$apps}; fora destas aplicações, esse volume não funciona como internet geral."] = true;
+            }
+
+            $benefitLabel = trim((string) ($benefit['label'] ?? ''));
+            if ($benefitLabel !== '' && str_starts_with(strtoupper($benefitLabel), 'FUP:')) {
+                $notices['Política de utilização: ' . preg_replace('/^FUP:/i', '', $benefitLabel)] = true;
+            }
+        }
+
+        foreach ($sharedGroups as $key => $group) {
+            $this->applySharedWallet($group, $cycles, $profile, $nominal, $effective, $restrictions, $notices);
         }
 
         $capacity = $effective;
         $capacity['social'] = $effective['social'] + $effective['data'];
 
         [$equivalent, $equivalentComplete, $equivalentTariff] = $this->equivalentBalanceValue($plan, $effective, $profile, $tariffs);
+
+        $requirements = $this->taggedLines((string) ($plan['notes'] ?? ''), 'REQUIREMENT');
+        foreach ($requirements as $requirement) {
+            $restrictions['Condição para activar: ' . $requirement] = true;
+        }
+        foreach (array_keys($notices) as $notice) {
+            $restrictions[$notice] = true;
+        }
 
         return [
             'kind' => 'plan',
@@ -185,11 +226,84 @@ final class RecommendationEngine
             'nominal' => $nominal,
             'effective' => $effective,
             'restrictions' => array_keys($restrictions),
+            'notices' => array_keys($notices),
+            'conditional_requirements' => $requirements,
+            'conditional' => $requirements !== [],
             'equivalent_balance_kz' => $equivalent,
             'equivalent_balance_complete' => $equivalentComplete,
             'equivalent_tariff_name' => $equivalentTariff,
             'balance_potentials' => [],
         ];
+    }
+
+    private function applySharedWallet(
+        array $group,
+        int $cycles,
+        array $profile,
+        array &$nominal,
+        array &$effective,
+        array &$restrictions,
+        array &$notices
+    ): void {
+        $eligible = [];
+        $pool = 0.0;
+        $description = null;
+
+        foreach ($group as $benefit) {
+            $service = $this->serviceKey((string) ($benefit['type'] ?? ''), (string) ($benefit['unit'] ?? ''));
+            if ($service === null) continue;
+
+            $quantity = (float) ($benefit['quantity'] ?? 0) * $cycles;
+            $pool = max($pool, $quantity);
+            $description ??= $this->cleanSharedLabel((string) ($benefit['label'] ?? ''));
+
+            $timeFactor = $this->timeFactor($benefit['start_time'] ?? null, $benefit['end_time'] ?? null, $profile['schedule']);
+            $networkFactor = $service === 'voice'
+                ? $this->networkFactor(strtoupper((string) ($benefit['network_scope'] ?? 'ALL')), $profile['call_scope'])
+                : 1.0;
+
+            foreach ($this->restrictionLabels($benefit, $service, $quantity, $profile, $timeFactor, $networkFactor) as $label) {
+                $restrictions[$label] = true;
+            }
+
+            if ($timeFactor * $networkFactor > 0 && in_array($service, $profile['services'], true)) {
+                $eligible[$service] = true;
+            }
+        }
+
+        if ($pool <= 0) return;
+
+        $services = array_keys($eligible);
+        $description = $description ?: 'Unidades partilhadas entre serviços';
+        $notices[$this->formatNumber($pool) . " unidades são uma única carteira partilhada ({$description}); o QualPacote não conta o mesmo benefício duas vezes."] = true;
+        if ($services === []) return;
+
+        $targets = $this->minimumTargets($profile);
+        $allocation = array_fill_keys($services, 0.0);
+        $remaining = $pool;
+
+        foreach ($services as $service) {
+            $target = max(0.0, (float) ($targets[$service] ?? 0));
+            if ($target <= 0) continue;
+            $use = min($target, $remaining);
+            $allocation[$service] += $use;
+            $remaining -= $use;
+            if ($remaining <= 0) break;
+        }
+
+        if ($remaining > 0) {
+            $maxServices = array_values(array_filter($services, fn ($service) => $this->isMaximizeService($profile, $service)));
+            if ($maxServices === []) $maxServices = $services;
+            $weights = $this->serviceWeights($maxServices, $profile['priority']);
+            foreach ($maxServices as $service) {
+                $allocation[$service] += $remaining * ($weights[$service] ?? 0.0);
+            }
+        }
+
+        foreach ($allocation as $service => $quantity) {
+            $nominal[$service] += $quantity;
+            $effective[$service] += $quantity;
+        }
     }
 
     private function balanceCandidate(array $tariff, array $profile): ?array
@@ -248,8 +362,7 @@ final class RecommendationEngine
         }
 
         $validity = isset($tariff['balance_validity_days']) && $tariff['balance_validity_days'] !== null
-            ? (int) $tariff['balance_validity_days']
-            : 0;
+            ? (int) $tariff['balance_validity_days'] : 0;
         $duration = $profile['duration_days'];
         $coverageRatio = ($duration === 0 || $validity === 0) ? 1.0 : min(1.0, $validity / max(1, $duration));
         $coverageDays = $duration === 0 ? $validity : ($validity === 0 ? $duration : min($duration, $validity));
@@ -270,6 +383,9 @@ final class RecommendationEngine
             'nominal' => $capacity,
             'effective' => $capacity,
             'restrictions' => [],
+            'notices' => [],
+            'conditional_requirements' => [],
+            'conditional' => false,
             'equivalent_balance_kz' => $budget,
             'equivalent_balance_complete' => true,
             'equivalent_tariff_name' => (string) ($tariff['name'] ?? ''),
@@ -287,13 +403,10 @@ final class RecommendationEngine
         foreach ($profile['services'] as $service) {
             $capacity = (float) ($candidate['capacity'][$service] ?? 0);
             $target = (float) ($targets[$service] ?? 0);
-            if ($target > 0) {
-                $minimumScores[$service] = min(1.0, $capacity / $target);
-            }
+            if ($target > 0) $minimumScores[$service] = min(1.0, $capacity / $target);
             if ($this->isMaximizeService($profile, $service)) {
                 $maximizeScores[$service] = ($maxima[$service] ?? 0) > 0
-                    ? min(1.0, $capacity / $maxima[$service])
-                    : 0.0;
+                    ? min(1.0, $capacity / $maxima[$service]) : 0.0;
             }
         }
 
@@ -309,15 +422,15 @@ final class RecommendationEngine
             }
         }
 
-        $restrictionFactor = 1.0 - min(0.25, count($candidate['restrictions']) * 0.04);
-        $score = (($minimumFit * 0.50) + ($maximizeFit * 0.34) + ($coverageFit * 0.16)) * $restrictionFactor;
+        $score = ($minimumFit * 0.50) + ($maximizeFit * 0.34) + ($coverageFit * 0.16);
+        if (!empty($candidate['conditional'])) $score *= 0.82;
 
         return [
             'score' => round($score * 100, 2),
             'meets_requirements' => $requirementsMet,
             'minimum_fit' => round($minimumFit * 100),
             'maximize_fit' => round($maximizeFit * 100),
-            'summary' => $this->summary($candidate, $profile, $requirementsMet, $minimumFit, $maximizeFit),
+            'summary' => $this->summary($candidate, $requirementsMet, $minimumFit, $maximizeFit),
         ];
     }
 
@@ -377,7 +490,10 @@ final class RecommendationEngine
     private function equivalentBalanceValue(array $plan, array $effective, array $profile, array $tariffs): array
     {
         $operatorId = (int) ($plan['operator_id'] ?? 0);
-        $operatorTariffs = array_values(array_filter($tariffs, static fn ($tariff) => (int) ($tariff['operator_id'] ?? 0) === $operatorId));
+        $operatorTariffs = array_values(array_filter(
+            $tariffs,
+            static fn ($tariff) => (int) ($tariff['operator_id'] ?? 0) === $operatorId
+        ));
         if ($operatorTariffs === []) return [null, false, null];
 
         usort($operatorTariffs, static fn ($a, $b) => ((int) ($b['is_default'] ?? 0)) <=> ((int) ($a['is_default'] ?? 0)));
@@ -386,7 +502,7 @@ final class RecommendationEngine
         $complete = true;
         $usedTariffs = [];
 
-        foreach (['data', 'voice', 'sms', 'social'] as $service) {
+        foreach (self::SERVICES as $service) {
             $quantity = (float) ($effective[$service] ?? 0);
             if ($quantity <= 0) continue;
             $hasBenefit = true;
@@ -423,13 +539,15 @@ final class RecommendationEngine
         };
         if ($type === '') return null;
 
-        $matching = array_values(array_filter($rates, static fn ($rate) => strtoupper((string) ($rate['service_type'] ?? '')) === $type));
+        $matching = array_values(array_filter(
+            $rates,
+            static fn ($rate) => strtoupper((string) ($rate['service_type'] ?? '')) === $type
+        ));
         if ($matching === []) return null;
 
         if ($service !== 'voice') {
             $timed = $this->ratesForSchedule($matching, $profile['schedule']);
-            $chosen = $timed !== [] ? $timed : $matching;
-            return $this->averagePrice($chosen);
+            return $this->averagePrice($timed !== [] ? $timed : $matching);
         }
 
         $scope = $profile['call_scope'];
@@ -459,7 +577,10 @@ final class RecommendationEngine
     private function ratesForNetwork(array $rates, array $scopes): array
     {
         foreach ($scopes as $scope) {
-            $filtered = array_values(array_filter($rates, static fn ($rate) => strtoupper((string) ($rate['network_scope'] ?? 'ALL')) === $scope));
+            $filtered = array_values(array_filter(
+                $rates,
+                static fn ($rate) => strtoupper((string) ($rate['network_scope'] ?? 'ALL')) === $scope
+            ));
             if ($filtered !== []) return $filtered;
         }
         return [];
@@ -486,7 +607,10 @@ final class RecommendationEngine
 
         $selected = [];
         foreach ($moments as $minute) {
-            $matches = array_values(array_filter($timed, fn ($rate) => $this->timeContains((string) $rate['start_time'], (string) $rate['end_time'], $minute)));
+            $matches = array_values(array_filter(
+                $timed,
+                fn ($rate) => $this->timeContains((string) $rate['start_time'], (string) $rate['end_time'], $minute)
+            ));
             if ($matches !== []) $selected = array_merge($selected, $matches);
             elseif ($untimed !== []) $selected = array_merge($selected, $untimed);
         }
@@ -526,21 +650,97 @@ final class RecommendationEngine
     private function timeFactor(?string $start, ?string $end, string $schedule): float
     {
         if (!$start || !$end) return 1.0;
-        $day = $this->timeContains($start, $end, 720) ? 1.0 : 0.05;
-        $night = $this->timeContains($start, $end, 120) ? 1.0 : 0.05;
-        return match ($schedule) {
-            'night' => $night,
-            'mixed' => ($day + $night) / 2,
-            default => $day,
-        };
+        if ($schedule === 'mixed') return 1.0;
+        $probe = $schedule === 'night' ? 120 : 720;
+        return $this->timeContains($start, $end, $probe) ? 1.0 : 0.0;
     }
 
     private function networkFactor(string $scope, string $callScope): float
     {
-        if ($scope === 'ALL') return 1.0;
-        if ($scope === 'ONNET') return match ($callScope) {'same' => 1.0, 'other' => 0.05, default => 0.50};
-        if ($scope === 'OFFNET') return match ($callScope) {'same' => 0.05, 'other' => 1.0, default => 0.50};
-        return 0.8;
+        if ($scope === 'ALL' || $callScope === 'mixed') return 1.0;
+        if ($scope === 'ONNET') return $callScope === 'same' ? 1.0 : 0.0;
+        if ($scope === 'OFFNET') return $callScope === 'other' ? 1.0 : 0.0;
+        return 1.0;
+    }
+
+    private function restrictionLabels(
+        array $benefit,
+        string $service,
+        float $quantity,
+        array $profile,
+        float $timeFactor,
+        float $networkFactor
+    ): array {
+        $labels = [];
+        $qty = $this->quantityLabel($service, $quantity);
+
+        if ($timeFactor === 0.0 && !empty($benefit['start_time']) && !empty($benefit['end_time'])) {
+            $start = substr((string) $benefit['start_time'], 0, 5);
+            $end = substr((string) $benefit['end_time'], 0, 5);
+            if ($profile['schedule'] === 'day') {
+                $labels[] = "{$qty} deste benefício só ficam disponíveis das {$start} às {$end}. Como indicou uso diurno, estes {$qty} ficam totalmente fora do cálculo útil; num perfil diurno, é provável que esteja a dormir durante boa parte desse horário.";
+            } elseif ($profile['schedule'] === 'night') {
+                $labels[] = "{$qty} deste benefício só ficam disponíveis das {$start} às {$end}. Como indicou uso principalmente à noite/madrugada, estes {$qty} ficam totalmente fora do horário que escolheu.";
+            }
+        }
+
+        if ($networkFactor === 0.0 && $service === 'voice') {
+            $scope = strtoupper((string) ($benefit['network_scope'] ?? 'ALL'));
+            if ($scope === 'ONNET' && $profile['call_scope'] === 'other') {
+                $labels[] = "{$qty} são exclusivos para chamadas na mesma rede. Como indicou que liga principalmente para outras redes, estes {$qty} não entram no cálculo útil.";
+            } elseif ($scope === 'OFFNET' && $profile['call_scope'] === 'same') {
+                $labels[] = "{$qty} são exclusivos para outras redes. Como indicou que liga principalmente dentro da mesma rede, estes {$qty} não entram no cálculo útil.";
+            }
+        }
+
+        return $labels;
+    }
+
+    private function sharedWalletKey(array $benefit): ?string
+    {
+        $label = trim((string) ($benefit['label'] ?? ''));
+        if (preg_match('/^SHARED:([a-z0-9_-]+)\|/i', $label, $m)) return strtolower($m[1]);
+        return null;
+    }
+
+    private function cleanSharedLabel(string $label): string
+    {
+        return trim((string) preg_replace('/^SHARED:[a-z0-9_-]+\|/i', '', $label));
+    }
+
+    private function dailyCapMb(array $benefit): ?float
+    {
+        $label = trim((string) ($benefit['label'] ?? ''));
+        if (preg_match('/^DAILY_CAP:([0-9]+(?:\.[0-9]+)?)\|/i', $label, $m)) {
+            return max(0.0, (float) $m[1]);
+        }
+        return null;
+    }
+
+    private function taggedLines(string $notes, string $tag): array
+    {
+        if ($notes === '') return [];
+        if (!preg_match('/\[' . preg_quote($tag, '/') . '\](.*?)\[\/' . preg_quote($tag, '/') . '\]/si', $notes, $m)) {
+            return [];
+        }
+        return array_values(array_filter(array_map('trim', preg_split('/\R+/', trim($m[1])) ?: [])));
+    }
+
+    private function quantityLabel(string $service, float $quantity): string
+    {
+        if (in_array($service, ['data', 'social'], true)) {
+            if ($quantity >= 1024) return $this->formatNumber($quantity / 1024) . ' GB';
+            return $this->formatNumber($quantity) . ' MB';
+        }
+        if ($service === 'voice') return $this->formatNumber($quantity) . ' min';
+        if ($service === 'sms') return $this->formatNumber($quantity) . ' SMS';
+        return $this->formatNumber($quantity);
+    }
+
+    private function formatNumber(float $value): string
+    {
+        $decimals = abs($value - round($value)) < 0.001 ? 0 : 1;
+        return number_format($value, $decimals, ',', '.');
     }
 
     private function timeToMinutes(string $time): int
@@ -549,22 +749,12 @@ final class RecommendationEngine
         return ($h * 60) + $m;
     }
 
-    private function restrictionLabel(array $benefit, float $factor): string
+    private function summary(array $candidate, bool $meets, float $minimumFit, float $maximizeFit): string
     {
-        $parts = [];
-        if (!empty($benefit['start_time']) && !empty($benefit['end_time'])) {
-            $parts[] = sprintf('Parte do benefício só vale das %s às %s', substr((string) $benefit['start_time'], 0, 5), substr((string) $benefit['end_time'], 0, 5));
+        if (!empty($candidate['conditional'])) {
+            return 'Pode ser vantajoso, mas depende de uma condição adicional indicada abaixo.';
         }
-        $scope = strtoupper((string) ($benefit['network_scope'] ?? 'ALL'));
-        if ($scope === 'ONNET') $parts[] = 'Parte das chamadas é apenas para a mesma rede';
-        elseif ($scope === 'OFFNET') $parts[] = 'Parte das chamadas é apenas para outras redes';
-        if (!empty($benefit['app_scope'])) $parts[] = 'Há dados exclusivos para aplicações específicas';
-        if ($parts === [] && $factor < 0.95) return 'Há benefícios com utilização limitada';
-        return implode('. ', $parts);
-    }
 
-    private function summary(array $candidate, array $profile, bool $meets, float $minimumFit, float $maximizeFit): string
-    {
         if (!$meets) {
             if ((float) $candidate['coverage_ratio'] < 0.999) return 'Cabe no orçamento, mas não dura todo o período que indicou.';
             if ($minimumFit < 0.999) return 'É uma alternativa dentro do orçamento, mas fica abaixo de um mínimo que indicou.';
