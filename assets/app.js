@@ -1,4 +1,11 @@
 (() => {
+    const results = document.getElementById('resultados');
+    if (results && new URLSearchParams(window.location.search).has('compare')) {
+        requestAnimationFrame(() => {
+            results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    }
+
     const wireRepeater = ({ addSelector, containerSelector, templateSelector, removeSelector, rowSelector }) => {
         const addButton = document.querySelector(addSelector);
         const container = document.querySelector(containerSelector);
