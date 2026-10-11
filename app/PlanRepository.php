@@ -345,11 +345,11 @@ final class PlanRepository
         return $stats;
     }
 
-    public function logSearch(array $profile, int $resultCount): void
+    public function logSearch(array $profile, int $resultCount): ?int
     {
         try {
             $services = implode('+', (array) ($profile['services'] ?? []));
-            $stmt = $this->db->prepare('INSERT INTO search_events (budget_kz,goal,usage_level,duration_days,schedule_profile,call_scope,result_count,created_at) VALUES (?,?,?,?,?,?,?,NOW())');
+            $stmt = $this->db->prepare('INSERT INTO search_events (budget_kz,goal,usage_level,duration_days,schedule_profile,call_scope,result_count,created_at) VALUES (?,?,?,?,?,?,?,?)');
             $stmt->execute([
                 (float) ($profile['budget_kz'] ?? 0),
                 $services !== '' ? $services : (string) ($profile['goal'] ?? ''),
@@ -358,8 +358,11 @@ final class PlanRepository
                 (string) ($profile['schedule'] ?? ''),
                 (string) ($profile['call_scope'] ?? ''),
                 $resultCount,
+                date('Y-m-d H:i:s'),
             ]);
+            return (int) $this->db->lastInsertId();
         } catch (Throwable) {
+            return null;
         }
     }
 

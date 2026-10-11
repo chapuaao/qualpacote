@@ -33,4 +33,6 @@ require_once __DIR__ . '/Csrf.php';
 require_once __DIR__ . '/Auth.php';
 require_once __DIR__ . '/PlanRepository.php';
 require_once __DIR__ . '/RecommendationEngine.php';
+require_once __DIR__ . '/UsageSession.php';
+require_once __DIR__ . '/UsageRepository.php';
 require_once __DIR__ . '/helpers.php';

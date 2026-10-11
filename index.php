@@ -2,13 +2,27 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/app/bootstrap.php';
+header('Cache-Control: no-store');
 
+use QualPacote\Csrf;
+use QualPacote\UsageRepository;
+use QualPacote\UsageSession;
 use QualPacote\Database;
 use QualPacote\PlanRepository;
 use QualPacote\RecommendationEngine;
 
 $repo = new PlanRepository(Database::connection());
 $operators = $repo->operators(true);
+$usage = new UsageRepository(Database::connection());
+$visitor = UsageSession::visitorKey();
+$usageAvailable = true;
+$feedbackResults = [];
+try {
+    $usage->recordVisit($visitor);
+} catch (Throwable) {
+    // A pending migration must never prevent a public comparison.
+    $usageAvailable = false;
+}
 
 $selectedServices = array_values(array_unique(array_filter(
     array_map(static fn ($v) => strtolower(trim((string) $v)), (array) ($_GET['services'] ?? [])),
@@ -50,7 +64,20 @@ if ($searched) {
         $tariffs = $repo->activeTariffs($selectedOperators);
         $engine = new RecommendationEngine();
         $results = $engine->recommend($plans, $profile, $tariffs);
-        $repo->logSearch($profile, count($results));
+        $requestToken = UsageSession::requestToken($_GET['consultation'] ?? null, [$profile, $selectedOperators]);
+        if ($usageAvailable) {
+            try {
+                $feedbackResults = $usage->recordConsultation($visitor, $requestToken, $profile, $results, (string) ($_SERVER['QUERY_STRING'] ?? ''));
+            } catch (Throwable) {
+                $usageAvailable = false;
+            }
+        }
+        if (!$usageAvailable && !isset($_SESSION['_usage_legacy'][$requestToken])) {
+            if ($repo->logSearch($profile, count($results)) !== null) {
+                $_SESSION['_usage_legacy'][$requestToken] = true;
+                $_SESSION['_usage_legacy'] = array_slice($_SESSION['_usage_legacy'], -100, null, true);
+            }
+        }
     }
 }
 
@@ -110,7 +137,7 @@ function service_label(string $service): string
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>QualPacote — Faça o seu saldo render mais</title>
     <meta name="description" content="Compare saldo normal e pacotes móveis pelo que realmente consegue fazer com o valor que pretende carregar.">
-    <link rel="stylesheet" href="/assets/app.css?v=2">
+    <link rel="stylesheet" href="/assets/app.css?v=3">
 </head>
 <body>
 <header class="site-header">
@@ -134,6 +161,7 @@ function service_label(string $service): string
 
             <form class="finder-card" method="get" action="/" data-intelligence-form>
                 <input type="hidden" name="compare" value="1">
+                <input type="hidden" name="consultation" value="<?= e(UsageSession::formToken()) ?>">
 
                 <div class="field">
                     <label for="budget_kz">Quanto pretende carregar?</label>
@@ -315,6 +343,18 @@ function service_label(string $service): string
                                     </div>
                                     <?php if ($sourceUrl): ?><a href="<?= e($sourceUrl) ?>" target="_blank" rel="noopener noreferrer">Ver fonte</a><?php endif; ?>
                                 </div>
+                                <?php $feedback = $feedbackResults[UsageRepository::resultKey($result)] ?? null; if ($feedback): ?>
+                                    <form class="result-feedback" method="post" action="/feedback.php" data-feedback-form>
+                                        <input type="hidden" name="_csrf" value="<?= e(Csrf::token()) ?>">
+                                        <input type="hidden" name="result" value="<?= e($feedback['vote_token']) ?>">
+                                        <strong>Esta recomendação foi útil?</strong>
+                                        <div class="feedback-actions">
+                                            <button class="secondary-btn small" type="submit" name="vote" value="1" aria-pressed="<?= (int) $feedback['vote'] === 1 ? 'true' : 'false' ?>">Gostei</button>
+                                            <button class="secondary-btn small" type="submit" name="vote" value="-1" aria-pressed="<?= (int) $feedback['vote'] === -1 ? 'true' : 'false' ?>">Não gostei</button>
+                                        </div>
+                                        <span class="feedback-status" role="status" aria-live="polite"><?= $feedback['vote'] !== null ? 'Obrigado! A sua opinião ficou registada.' : '' ?></span>
+                                    </form>
+                                <?php endif; ?>
                             </article>
                         <?php endforeach; ?>
                     </div>
@@ -338,6 +378,6 @@ function service_label(string $service): string
 </main>
 
 <footer class="site-footer"><div class="container"><strong>QualPacote</strong><span>Inteligência prática para fazer o saldo render.</span></div></footer>
-<script src="/assets/app.js?v=2"></script>
+<script src="/assets/app.js?v=3"></script>
 </body>
 </html>

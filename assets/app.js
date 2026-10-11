@@ -41,6 +41,36 @@
         rowSelector: '.rate-row',
     });
 
+    document.querySelectorAll('[data-feedback-form]').forEach((feedbackForm) => {
+        feedbackForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const button = event.submitter;
+            if (!button || feedbackForm.dataset.saving === 'true') return;
+            const buttons = [...feedbackForm.querySelectorAll('button[name="vote"]')];
+            const status = feedbackForm.querySelector('.feedback-status');
+            const body = new FormData(feedbackForm);
+            body.set('vote', button.value);
+            feedbackForm.dataset.saving = 'true';
+            buttons.forEach((item) => item.disabled = true);
+            status.textContent = 'A guardar…';
+            try {
+                const response = await fetch(feedbackForm.action, {
+                    method: 'POST', body, credentials: 'same-origin',
+                    headers: { Accept: 'application/json' },
+                });
+                const result = await response.json();
+                if (!response.ok || !result.ok) throw new Error(result.message || 'Não foi possível guardar. Tente novamente.');
+                buttons.forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+                status.textContent = result.message;
+            } catch (error) {
+                status.textContent = error.message || 'Não foi possível guardar. Tente novamente.';
+            } finally {
+                feedbackForm.dataset.saving = 'false';
+                buttons.forEach((item) => item.disabled = false);
+            }
+        });
+    });
+
     const form = document.querySelector('[data-intelligence-form]');
     if (!form) return;
 
