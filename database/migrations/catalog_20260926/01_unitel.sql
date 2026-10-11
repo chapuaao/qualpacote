@@ -14,7 +14,7 @@ CREATE TEMPORARY TABLE qp_plan_import (
     source_url VARCHAR(600) NOT NULL,
     notes TEXT NULL,
     PRIMARY KEY (operator_slug, plan_name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO qp_plan_import (operator_slug,plan_name,price_kz,validity_days,activation_code,source_url,notes) VALUES
 ('unitel','Plano Base',2000,30,NULL,'https://unitel.ao/wp-content/uploads/share_upload/2026/04/UNITEL_RevistaMaisProximaAbrMai2026DIGITAL.pdf','[CATALOG:20260926]
@@ -123,7 +123,7 @@ CREATE TEMPORARY TABLE qp_benefit_import (
     end_time TIME NULL,
     app_scope VARCHAR(500) NULL,
     label VARCHAR(255) NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO qp_benefit_import (operator_slug,plan_name,benefit_type,quantity,unit,network_scope,start_time,end_time,app_scope,label) VALUES
 ('unitel','Plano Base','VOICE',70,'MIN','ALL',NULL,NULL,NULL,NULL),

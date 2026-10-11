@@ -4,7 +4,7 @@ INSERT INTO operators (name, slug, website, display_order, active, created_at, u
 VALUES
     ('UNITEL', 'unitel', 'https://unitel.ao/', 10, 1, NOW(), NOW()),
     ('Africell', 'africell', 'https://www.africell.ao/', 20, 1, NOW(), NOW()),
-    ('Movicel', 'movicel', 'https://www.movicel.ao/', 30, 1, NOW(), NOW())
+    ('Movicel', 'movicel', 'https://www.movicel.co.ao/', 30, 1, NOW(), NOW())
 ON DUPLICATE KEY UPDATE
     name = VALUES(name), website = VALUES(website), display_order = VALUES(display_order), active = VALUES(active), updated_at = NOW();
 

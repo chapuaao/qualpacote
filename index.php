@@ -46,9 +46,22 @@ $profile = [
     'sms_count' => $_GET['sms_count'] ?? '',
     'social_mode' => $_GET['social_mode'] ?? 'max',
     'social_gb' => $_GET['social_gb'] ?? '',
+    'social_apps' => (array) ($_GET['social_apps'] ?? []),
+    'sms_scope' => $_GET['sms_scope'] ?? 'mixed',
+    'category' => ($_GET['category'] ?? '') === 'router' ? 'router' : 'mobile',
+    'router_ready' => !empty($_GET['router_ready']),
+    'active_plan_ids' => (array) ($_GET['active_plan_ids'] ?? []),
 ];
 
 $selectedOperators = array_values(array_filter(array_map('intval', (array) ($_GET['operators'] ?? [])), static fn ($id) => $id > 0));
+$availablePlans = $repo->activePlans($selectedOperators);
+$activeChoices = [];
+foreach ($availablePlans as $existing) {
+    if (empty($existing['rules']['family']) || !empty($existing['rules']['requires_family'])) continue;
+    $familyKey = $existing['operator_id'] . ':' . $existing['rules']['family'];
+    $activeChoices[$familyKey] ??= $existing;
+    if (in_array((string) $existing['id'], array_map('strval',$profile['active_plan_ids']),true)) $activeChoices[$familyKey] = $existing;
+}
 $searched = isset($_GET['compare']);
 $results = [];
 $error = null;
@@ -60,7 +73,7 @@ if ($searched) {
     } elseif ($selectedServices === []) {
         $error = 'Escolha pelo menos uma utilização: internet, chamadas, SMS ou redes sociais.';
     } else {
-        $plans = $repo->activePlans($selectedOperators);
+        $plans = $availablePlans;
         $tariffs = $repo->activeTariffs($selectedOperators);
         $engine = new RecommendationEngine();
         $results = $engine->recommend($plans, $profile, $tariffs);
@@ -79,14 +92,6 @@ if ($searched) {
             }
         }
     }
-}
-
-$lastVerified = null;
-try {
-    $stats = $repo->dashboardStats();
-    $lastVerified = $stats['last_checked'] ?? null;
-} catch (Throwable) {
-    $lastVerified = null;
 }
 
 function capacity_text(array $capacity, array $services): string
@@ -137,13 +142,13 @@ function service_label(string $service): string
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>QualPacote — Faça o seu saldo render mais</title>
     <meta name="description" content="Compare saldo normal e pacotes móveis pelo que realmente consegue fazer com o valor que pretende carregar.">
-    <link rel="stylesheet" href="/assets/app.css?v=3">
+    <link rel="stylesheet" href="/assets/app.css?v=4">
 </head>
 <body>
 <header class="site-header">
     <div class="container header-inner">
         <a class="brand" href="/">Qual<span>Pacote</span></a>
-        <a class="admin-link" href="/admin/">Admin</a>
+        <a class="admin-link" href="/catalog.php">Consultar catálogo</a><a class="admin-link" href="/admin/">Admin</a>
     </div>
 </header>
 
@@ -163,6 +168,7 @@ function service_label(string $service): string
                 <input type="hidden" name="compare" value="1">
                 <input type="hidden" name="consultation" value="<?= e(UsageSession::formToken()) ?>">
 
+                <div class="field"><label for="category">Onde pretende usar?</label><select id="category" name="category"><option value="mobile"<?= selected($profile['category'], 'mobile') ?>>No telemóvel</option><option value="router"<?= selected($profile['category'], 'router') ?>>Num MiFi / router</option></select><small>MiFi/router: comparamos pacotes para equipamento e SIM já disponíveis.</small></div>
                 <div class="field">
                     <label for="budget_kz">Quanto pretende carregar?</label>
                     <div class="money-input large-money">
@@ -200,7 +206,7 @@ function service_label(string $service): string
                         <label class="intent-option"><input type="radio" name="voice_mode" value="calls"<?= checked($profile['voice_mode'] === 'calls') ?>> Quero fazer pelo menos um número de chamadas</label>
                         <div class="call-target" data-mode-target="voice-calls"<?= $profile['voice_mode'] === 'calls' ? '' : ' hidden' ?>>
                             <label><input name="calls" type="number" min="1" step="1" value="<?= e($profile['calls']) ?>" placeholder="Ex.: 30"><span>chamadas</span></label>
-                            <label><select name="avg_call_minutes"><option value="1"<?= selected($profile['avg_call_minutes'], '1') ?>>~1 min cada</option><option value="3"<?= selected($profile['avg_call_minutes'], '3') ?>>~3 min cada</option><option value="5"<?= selected($profile['avg_call_minutes'], '5') ?>>~5 min cada</option><option value="10"<?= selected($profile['avg_call_minutes'], '10') ?>>~10 min cada</option></select></label>
+                            <label><select name="avg_call_minutes"><option value="0.5"<?= selected($profile['avg_call_minutes'], '0.5') ?>>~30 segundos cada</option><option value="1"<?= selected($profile['avg_call_minutes'], '1') ?>>~1 min cada</option><option value="3"<?= selected($profile['avg_call_minutes'], '3') ?>>~3 min cada</option><option value="5"<?= selected($profile['avg_call_minutes'], '5') ?>>~5 min cada</option><option value="10"<?= selected($profile['avg_call_minutes'], '10') ?>>~10 min cada</option></select></label>
                         </div>
                     </section>
 
@@ -212,7 +218,7 @@ function service_label(string $service): string
                     </section>
 
                     <section class="intent-panel" data-service-panel="social"<?= in_array('social', $selectedServices, true) ? '' : ' hidden' ?>>
-                        <strong>Redes sociais</strong>
+                        <strong>Redes sociais</strong><small>Se também escolher internet, este consumo é adicional. Não contamos o mesmo GB duas vezes.</small><div class="operator-options"><?php foreach (['whatsapp'=>'WhatsApp','facebook'=>'Facebook','instagram'=>'Instagram','tiktok'=>'TikTok','youtube'=>'YouTube','x'=>'X','snapchat'=>'Snapchat','other'=>'Outras aplicações'] as $app=>$label): ?><label><input type="checkbox" name="social_apps[]" value="<?= e($app) ?>"<?= checked(in_array($app,$profile['social_apps'],true)) ?>> <?= e($label) ?></label><?php endforeach; ?></div><small>Escolha as aplicações para comparar dados restritos. Sem escolha, usamos apenas internet geral.</small>
                         <label class="intent-option"><input type="radio" name="social_mode" value="max"<?= checked($profile['social_mode'] === 'max') ?>> Quero o máximo de dados para redes sociais</label>
                         <label class="intent-option"><input type="radio" name="social_mode" value="minimum"<?= checked($profile['social_mode'] === 'minimum') ?>> Preciso de pelo menos</label>
                         <div class="inline-target" data-mode-target="social"<?= $profile['social_mode'] === 'minimum' ? '' : ' hidden' ?>><input name="social_gb" type="number" min="0" step="0.5" value="<?= e($profile['social_gb']) ?>" placeholder="Ex.: 2"><span>GB</span></div>
@@ -233,7 +239,7 @@ function service_label(string $service): string
                 <div class="field">
                     <label for="duration_days">Até quando precisa que este valor lhe sirva?</label>
                     <select id="duration_days" name="duration_days">
-                        <option value="0"<?= selected($profile['duration_days'], '0') ?>>Quero usar até acabar, sem prazo do pacote</option>
+                        <option value="0"<?= selected($profile['duration_days'], '0') ?>>Não tenho um período mínimo</option>
                         <option value="1"<?= selected($profile['duration_days'], '1') ?>>Só hoje</option>
                         <option value="3"<?= selected($profile['duration_days'], '3') ?>>Pelo menos 3 dias</option>
                         <option value="7"<?= selected($profile['duration_days'], '7') ?>>Pelo menos 7 dias</option>
@@ -246,14 +252,17 @@ function service_label(string $service): string
                 <details class="fine-tune">
                     <summary>Mais detalhes, se forem importantes para si</summary>
                     <div class="details-fields">
+                        <label class="inline-check"><input type="checkbox" name="router_ready" value="1"<?= checked($profile['router_ready']) ?>> Já tenho SIM e MiFi/router compatíveis com a oferta</label>
+                        <div class="field"><label>Já tem algum destes planos activo durante todo o período?</label><div class="operator-options"><?php foreach ($activeChoices as $existing): ?><label><input type="checkbox" name="active_plan_ids[]" value="<?= (int) $existing['id'] ?>"<?= checked(in_array((string) $existing['id'], array_map('strval',$profile['active_plan_ids']),true)) ?>> <?= e($existing['operator_name'] . ' — família ' . $existing['rules']['family']) ?></label><?php endforeach; ?></div><small>Esta escolha confirma a condição prévia; o saldo já existente não é somado à nova compra.</small></div>
+                        <div class="field"><label for="sms_scope">Para quem envia SMS?</label><select id="sms_scope" name="sms_scope"><?php foreach (['mixed'=>'Várias redes','same'=>'Mesma rede','other'=>'Outras redes'] as $v=>$l): ?><option value="<?= e($v) ?>"<?= selected($profile['sms_scope'],$v) ?>><?= e($l) ?></option><?php endforeach; ?></select></div>
                         <div class="two-cols">
                             <div class="field">
                                 <label for="schedule">Quando costuma usar mais?</label>
-                                <select id="schedule" name="schedule"><option value="day"<?= selected($profile['schedule'], 'day') ?>>Durante o dia</option><option value="mixed"<?= selected($profile['schedule'], 'mixed') ?>>Dia e noite</option><option value="night"<?= selected($profile['schedule'], 'night') ?>>Principalmente à noite/madrugada</option></select>
+                                <select id="schedule" name="schedule"><option value="day"<?= selected($profile['schedule'], 'day') ?>>Durante o dia (referência: 12h)</option><option value="mixed"<?= selected($profile['schedule'], 'mixed') ?>>Dia e noite</option><option value="night"<?= selected($profile['schedule'], 'night') ?>>À noite (referência: 21h)</option><option value="late_night"<?= selected($profile['schedule'], 'late_night') ?>>De madrugada (referência: 02h)</option></select>
                             </div>
                             <div class="field" data-call-scope-field<?= in_array('voice', $selectedServices, true) ? '' : ' hidden' ?>>
                                 <label for="call_scope">Para quem liga mais?</label>
-                                <select id="call_scope" name="call_scope"><option value="mixed"<?= selected($profile['call_scope'], 'mixed') ?>>Para várias redes</option><option value="same"<?= selected($profile['call_scope'], 'same') ?>>Principalmente para a mesma rede</option><option value="other"<?= selected($profile['call_scope'], 'other') ?>>Principalmente para outras redes</option></select>
+                                <select id="call_scope" name="call_scope"><option value="mixed"<?= selected($profile['call_scope'], 'mixed') ?>>Para várias redes</option><option value="same"<?= selected($profile['call_scope'], 'same') ?>>Para a mesma rede</option><option value="other"<?= selected($profile['call_scope'], 'other') ?>>Para outras redes</option></select>
                             </div>
                         </div>
                         <div class="field">
@@ -278,7 +287,7 @@ function service_label(string $service): string
             <div class="container">
                 <div class="section-heading">
                     <div><p class="eyebrow">Com <?= e(money($profile['budget_kz'])) ?></p><h2>Opções mais úteis para o que pediu</h2></div>
-                    <?php if ($lastVerified): ?><p class="verified">Catálogo revisto até <?= e(date_ao($lastVerified)) ?></p><?php endif; ?>
+                    <p class="verified">Comparação entre ofertas verificadas no catálogo. A data consta em cada oferta.</p>
                 </div>
 
                 <?php if ($error): ?>
@@ -295,22 +304,23 @@ function service_label(string $service): string
                         ?>
                             <article class="result-card<?= $index === 0 ? ' top-result' : '' ?>">
                                 <div class="result-rank">
-                                    <span><?= $index === 0 ? 'Melhor opção para o que pediu' : 'Alternativa ' . ($index + 1) ?></span>
+                                    <span><?= $index === 0 ? 'Primeira opção entre as ofertas comparadas' : 'Alternativa ' . ($index + 1) ?></span>
                                     <strong><?= e($result['operator_name']) ?></strong>
                                 </div>
                                 <div class="result-main">
                                     <div>
-                                        <div class="result-type"><?= $result['kind'] === 'balance' ? 'Saldo normal' : 'Pacote' ?></div>
+                                        <div class="result-type"><?= !empty($result['is_combination']) ? 'Combinação de compras' : ($result['kind'] === 'balance' ? 'Saldo normal' : 'Pacote') ?></div>
                                         <h3><?= e($result['title']) ?></h3>
                                         <p class="result-summary"><?= e($result['summary']) ?></p>
                                         <p class="capacity"><?= e(capacity_text($result['capacity'], $selectedServices)) ?></p>
                                     </div>
-                                    <div class="result-price"><strong><?= e(money($result['effective_cost'])) ?></strong><span><?= $result['kind'] === 'plan' && $result['cycles'] > 1 ? $result['cycles'] . ' activaçōes para o período' : 'do seu orçamento' ?></span></div>
+                                    <div class="result-price"><strong><?= e(money($result['effective_cost'])) ?></strong><span><?= $result['kind'] === 'plan' && $result['cycles'] > 1 ? $result['cycles'] . ' activações planeadas' : 'do seu orçamento' ?></span></div>
                                 </div>
 
                                 <div class="practical-facts">
+                                    <span class="fact">Sobra no orçamento: <?= e(money($result['remaining_budget'])) ?></span>
                                     <span class="fact <?= $result['meets_requirements'] ? 'good' : 'warn' ?>"><?= $result['meets_requirements'] ? 'Cumpre os mínimos e o período' : 'Não cobre tudo o que pediu' ?></span>
-                                    <?php if ($validity > 0): ?><span class="fact">Validade: <?= $validity ?> dias</span><?php else: ?><span class="fact">Sem validade de pacote informada</span><?php endif; ?>
+                                    <?php if (!empty($result['is_combination'])): ?><span class="fact">Cada compra tem validade própria; consulte os passos abaixo.</span><?php elseif ($validity > 0): ?><span class="fact">Validade: <?= $validity ?> dias</span><?php else: ?><span class="fact">Sem validade de pacote informada</span><?php endif; ?>
                                     <?php if ($result['kind'] === 'plan' && $result['equivalent_balance_complete'] && $result['equivalent_balance_kz']): ?>
                                         <span class="fact strong">Equivale a ~<?= e(money($result['equivalent_balance_kz'])) ?> em saldo normal</span>
                                     <?php endif; ?>
@@ -336,11 +346,23 @@ function service_label(string $service): string
                                     <div class="restrictions"><strong>Atenção</strong><ul><?php foreach ($result['restrictions'] as $restriction): ?><li><?= e($restriction) ?></li><?php endforeach; ?></ul></div>
                                 <?php endif; ?>
 
+                                <?php if (!empty($result['components'])): ?>
+                                <div class="purchase-steps"><strong>Como concretizar esta opção</strong><ol>
+                                <?php foreach ($result['components'] as $part): $item = $part['plan'] ?? $part['tariff']; ?>
+                                    <li><b><?= e($item['name']) ?></b> — <?= e(money($part['cost'])) ?>.
+                                    <?php if (isset($part['plan'])): foreach ($part['schedule'] ?? [['day'=>1,'count'=>$part['cycles']]] as $step): ?> Dia <?= (int) $step['day'] ?>: <?= (int) $step['count'] ?> compra(s).<?php endforeach; ?>
+                                    <?php if (!empty($item['activation_code'])): ?> Activar: <?= e($item['activation_code']) ?>.<?php endif; ?>
+                                    <?php else: ?> Reservar este saldo para consumo directo.<?php endif; ?>
+                                    Verificado em <?= e(date_ao($item['source_checked_at'] ?? '')) ?>. <?php if (!empty($item['source_observed_at'])): ?>Fonte consultada sem alterações em <?= e(date_ao($item['source_observed_at'])) ?>.<?php endif; ?> <?php if (!empty($item['source_url'])): ?><a href="<?= e($item['source_url']) ?>" target="_blank" rel="noopener noreferrer">Fonte</a><?php endif; ?>
+                                    </li>
+                                <?php endforeach; ?></ol></div>
+                                <?php endif; ?>
                                 <div class="result-footer">
                                     <div>
                                         <?php if ($result['kind'] === 'plan' && !empty($plan['activation_code'])): ?><span class="activation">Activar: <strong><?= e($plan['activation_code']) ?></strong></span><?php endif; ?>
                                         <span><?= $result['kind'] === 'balance' ? 'Consumo pela tarifa normal' : 'Pacote pré-definido' ?></span>
                                     </div>
+                                    <span>Verificado em <?= e(date_ao(($plan ?? $tariff)['source_checked_at'] ?? '')) ?></span>
                                     <?php if ($sourceUrl): ?><a href="<?= e($sourceUrl) ?>" target="_blank" rel="noopener noreferrer">Ver fonte</a><?php endif; ?>
                                 </div>
                                 <?php $feedback = $feedbackResults[UsageRepository::resultKey($result)] ?? null; if ($feedback): ?>
@@ -359,7 +381,7 @@ function service_label(string $service): string
                         <?php endforeach; ?>
                     </div>
                 <?php endif; ?>
-                <p class="catalog-note">Os valores dependem das tarifas e pacotes verificados no catálogo. As operadoras podem alterar condições; confirme antes de activar.</p>
+                <p class="catalog-note">Os valores dependem das tarifas e pacotes verificados no catálogo. As operadoras podem alterar condições; confirme antes de activar. As combinações procuram até dois tipos de pacote (mais o plano base exigido) na mesma rede, com repetição confirmada e eventual saldo extra. Horários de referência não representam um consumo diário garantido; cada carteira mantém as suas restrições.</p>
             </div>
         </section>
     <?php endif; ?>
@@ -378,6 +400,6 @@ function service_label(string $service): string
 </main>
 
 <footer class="site-footer"><div class="container"><strong>QualPacote</strong><span>Inteligência prática para fazer o saldo render.</span></div></footer>
-<script src="/assets/app.js?v=3"></script>
+<script src="/assets/app.js?v=4"></script>
 </body>
 </html>

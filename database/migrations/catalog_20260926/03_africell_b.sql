@@ -14,7 +14,7 @@ CREATE TEMPORARY TABLE qp_plan_import (
     source_url VARCHAR(600) NOT NULL,
     notes TEXT NULL,
     PRIMARY KEY (operator_slug, plan_name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO qp_plan_import (operator_slug,plan_name,price_kz,validity_days,activation_code,source_url,notes) VALUES
 ('africell','Fala Com Todos 7D 850',850,7,'*123*4*3*1# | lojas/agentes | Afrimoney | ATM/MCX Express | apps bancárias | Telopay/PagáSó/5Linhas/PayPay','https://www.africell.ao/falacomtodos/','[CATALOG:20260926]\nVoz e SMS para todas as redes; renovação automática por defeito.'),
@@ -67,7 +67,7 @@ CREATE TEMPORARY TABLE qp_benefit_import (
     end_time TIME NULL,
     app_scope VARCHAR(500) NULL,
     label VARCHAR(255) NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO qp_benefit_import (operator_slug,plan_name,benefit_type,quantity,unit,network_scope,start_time,end_time,app_scope,label) VALUES
 ('africell','Fala Com Todos 7D 850','VOICE',85,'MIN','ALL','07:00:00','23:59:00',NULL,NULL),

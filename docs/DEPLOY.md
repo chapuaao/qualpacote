@@ -71,7 +71,7 @@ php scripts/check_sources.php
 Exemplo de cron diário:
 
 ```cron
-30 6 * * * cd /caminho/qualpacote && php scripts/check_sources.php >> source_check.log 2>&1
+30 6 * * * cd /caminho/qualpacote && php scripts/check_sources.php >> /caminho-privado/qualpacote-source-check.log 2>&1
 ```
 
 A pasta `/scripts` é bloqueada pelo `.htaccess`, portanto a rotina não fica exposta como endpoint público.
@@ -104,3 +104,31 @@ A votação exige sessão e CSRF, aceita apenas resultados registados para esse 
 Datas seguem `APP_TIMEZONE` (Africa/Luanda por omissão). O período usa datas inclusivas até 366 dias. Visitantes do período são navegadores activos nesse intervalo; visitantes que consultaram são distintos entre consultas registadas. Votos usam a data da última alteração da opinião. A taxa de aprovação é Gostei / (Gostei + Não gostei), excluindo resultados sem voto. Não há histórico separado de todas as mudanças do mesmo voto.
 
 Sem substituição de `.env` e sem deploy automático.
+
+## Catálogo e descoberta assistida — 11/10/2026
+
+Esta actualização preserva histórico e requer duas migrações, mesmo nas instalações que já têm estatísticas. Fazer backup da base antes da publicação manual. Usar uma janela de manutenção para copiar todos os ficheiros e aplicar as migrações; o código tem fallbacks para tabelas pendentes, mas não usar uma instalação parcialmente actualizada como operação normal.
+
+Pré-requisitos: catálogo de 26/09 e migração de estatísticas já importados. Para uma instalação nova, seguir schema/seed, migração de saldo, os cinco SQL de `catalog_20260926/` e depois os dois SQL abaixo. As tabelas de estatísticas já constam do schema novo.
+
+```bash
+mysql -u UTILIZADOR -p BASE < database/migrations/20261011_catalog_intelligence.sql
+mysql -u UTILIZADOR -p BASE < database/migrations/20261011_catalog_verified.sql
+php scripts/check_sources.php
+```
+
+Em cPanel, importar os dois SQL pela mesma ordem no phpMyAdmin. O primeiro cria as tabelas de regras, fontes, evidência, revisão e componentes dos resultados; o segundo acrescenta 20 ofertas e novas versões Afrimix/FLEX. A reimportação foi testada sem duplicação. Não repor `seed.sql` sobre uma base existente apenas para este upgrade.
+
+Configurar um cron diário com o executável PHP 8.2+ correcto do alojamento, cURL e as mesmas variáveis/configuração da aplicação. Guardar o log fora do DocumentRoot. A primeira execução regista as fontes e propostas; novas fontes descobertas são visitadas em execuções seguintes. Código de saída 1 ou estado de falha no admin exige investigação; não implica que a oferta deixou de existir.
+
+Verificar depois do deploy:
+
+1. `/catalog.php` mostra Movinet/Kuia e `/catalog.php?category=router` mostra Konekta separado.
+2. Pesquisar internet mais redes sociais conserva o volume total; escolher aplicações exclui carteiras que não as cobrem.
+3. Confirmar base/aditivo FLEX, custo total e passos de activação; a data de preço FLEX continua a ser a revisão anterior.
+4. Router sem equipamento declarado não garante compra completa.
+5. Admin → **Fontes e revisão** mostra estado da rotina, propostas e diferenças. Completar uma proposta sem publicar, rever e aprovar individualmente.
+6. Propostas antigas ou baseadas numa versão editada são bloqueadas; acesso não autenticado à evidência é recusado.
+7. Uma comparação e votação continuam a aparecer nas estatísticas com a identidade completa da combinação.
+
+A rotina não foi instalada no servidor de produção por este PR. Não há integração com APIs privadas, USSD, OCR ou notificações externas. Os testes de transporte/extração usam evidências e fronteiras locais; é obrigatório validar o primeiro acesso real no alojamento. As fontes e divergências conhecidas estão documentadas em `CATALOG_SOURCES_20261011.md`.

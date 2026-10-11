@@ -14,7 +14,7 @@ CREATE TEMPORARY TABLE qp_plan_import (
     source_url VARCHAR(600) NOT NULL,
     notes TEXT NULL,
     PRIMARY KEY (operator_slug, plan_name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO qp_plan_import (operator_slug,plan_name,price_kz,validity_days,activation_code,source_url,notes) VALUES
 ('movicel','FLEX 25',500,30,'*202*500# | *191# | SMS 19202: 500 | Multicaixa | loja Movicel','https://www.movicel.co.ao/Download/ResumoPSite_OfertaFlexMovicel.pdf','[CATALOG:20260926]\nMinutos e SMS para Movicel em carteiras separadas; renovação automática se houver saldo.'),
@@ -75,7 +75,7 @@ CREATE TEMPORARY TABLE qp_benefit_import (
     end_time TIME NULL,
     app_scope VARCHAR(500) NULL,
     label VARCHAR(255) NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO qp_benefit_import (operator_slug,plan_name,benefit_type,quantity,unit,network_scope,start_time,end_time,app_scope,label) VALUES
 ('movicel','FLEX 25','VOICE',25,'MIN','ONNET',NULL,NULL,NULL,NULL),
