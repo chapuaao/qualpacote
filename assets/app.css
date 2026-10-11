@@ -11,3 +11,5 @@
 .purchase-steps li { margin: .4rem 0; }
 .catalog-tools { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 2rem; }
 .catalog-tools label { flex: 1 1 12rem; }
+
+.result-details{margin:14px 0;font-size:.88rem}.result-details summary,.activation-channels summary{cursor:pointer;color:var(--brand);font-weight:600}.result-details ul{padding-left:20px}.result-details li{margin:8px 0}.activation-channels{font-size:.8rem;color:var(--muted);margin:8px 0;overflow-wrap:anywhere}.source-meta{font-size:.8rem;color:var(--muted);margin-top:4px}.source-warning{color:var(--warning);font-size:.8rem}.purchase-steps{font-size:.88rem}.purchase-steps ol{padding-left:20px}.activation{overflow-wrap:anywhere}.essential-conditions{font-size:.88rem}

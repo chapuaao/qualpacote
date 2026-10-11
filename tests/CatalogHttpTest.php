@@ -42,8 +42,19 @@ function catalog_http_checks(PDO $db, string $name, string $dsn, int $adminId, i
         $document=$request('/admin/evidence.php?id='.$snapshotId,$cookies);catalog_expect($document['status']===200 && str_starts_with($document['body'],'%PDF'),'Admin pode consultar o documento original');
         catalog_expect($request('/scripts/check_sources.php',$cookies)['status']===404,'Rotina não pode ser disparada pela web');
         $mobile=$request('/?compare=1&budget_kz=1000&services[]=data&duration_days=7',$cookies);
-        catalog_expect($mobile['status']===200 && str_contains($mobile['body'],'data-feedback-form') && str_contains($mobile['body'],'Como concretizar esta opção'),'Compras e feedback funcionam com catálogo expandido');
+        catalog_expect($mobile['status']===200 && str_contains($mobile['body'],'data-feedback-form') && str_contains($mobile['body'],'Como comprar'),'Compras e feedback funcionam com catálogo expandido');
         catalog_expect(!str_contains($mobile['body'],'Catálogo revisto até'),'Data mais recente não é apresentada como revisão de todo o catálogo');
+        catalog_expect(strpos($mobile['body'],'Quais redes preferes?') < strpos($mobile['body'],'Plano já activo durante todo o período?') && strpos($mobile['body'],'name="router_ready"') > strpos($mobile['body'],'id="call_scope"'),'Redes são o primeiro filtro; equipamento é o último');
+        catalog_expect(!str_contains($mobile['body'],'Vantagem sobre saldo normal') && !str_contains($mobile['body'],'class="result-summary"'),'Resumo genérico e equivalência repetida foram removidos');
+        catalog_expect(str_contains($mobile['body'],'<details class="result-details"><summary>Condições e limites</summary>'),'Restrições conservadas em detalhes recolhidos');
+        catalog_expect(str_contains($mobile['body'],'data-router-ready-field hidden') && str_contains($mobile['body'],'data-sms-scope-field hidden'),'Campos irrelevantes ficam recolhidos no telemóvel sem SMS');
+        $africell=(int)$db->query("SELECT id FROM operators WHERE slug='africell'")->fetchColumn();
+        $simple=$request('/?compare=1&budget_kz=300&services[]=data&services[]=voice&duration_days=3&call_scope=same&operators[]='.$africell,$cookies);
+        preg_match_all('/<article class="result-card[^\"]*">(.*?)<\/article>/s',$simple['body'],$cards);
+        $afrimix=array_values(array_filter($cards[1],static fn($card)=>str_contains($card,'<h3>Afrimix 3D 300</h3>')));
+        catalog_expect(count($afrimix)===1 && substr_count($afrimix[0],'Activar:')===1 && substr_count($afrimix[0],'Verificado em')===1 && !str_contains($afrimix[0],'Como comprar'),'Pacote de uma compra apresenta activação e data uma única vez');
+        $router=$request('/?compare=1&budget_kz=4000&services[]=data&duration_days=7&category=router',$cookies);
+        catalog_expect(str_contains($router['body'],'essential-conditions') && str_contains($router['body'],'Requer SIM e MiFi/router'),'Condição de equipamento permanece visível, fora dos detalhes');
         fwrite(STDOUT,"OK: CatalogHttpTest (revisão, CSRF, evidência e categorias)\n");
     } catch(Throwable $e){rewind($log);fwrite(STDERR,stream_get_contents($log));throw $e;}
     finally{proc_terminate($process);proc_close($process);fclose($log);foreach(glob($session.'/*') as $file)unlink($file);rmdir($session);}
