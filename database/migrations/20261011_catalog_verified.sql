@@ -40,8 +40,9 @@ SELECT o.id,i.name,1,1,NOW(),NOW() FROM qp_verified_import i JOIN operators o ON
 WHERE NOT EXISTS (SELECT 1 FROM plans p WHERE p.operator_id=o.id AND p.name=i.name);
 UPDATE plan_versions pv JOIN plans p ON p.id=pv.plan_id JOIN operators o ON o.id=p.operator_id
 JOIN qp_verified_import i ON i.operator_slug=o.slug AND i.name=p.name
+LEFT JOIN plan_versions reviewed ON reviewed.plan_id=p.id AND reviewed.notes LIKE '%[CATALOG:20261011]%'
 SET pv.active_to=NOW() WHERE pv.active_to IS NULL
-AND NOT EXISTS (SELECT 1 FROM plan_versions x WHERE x.plan_id=p.id AND x.notes LIKE '%[CATALOG:20261011]%');
+AND reviewed.id IS NULL;
 INSERT INTO plan_versions (plan_id,version_no,price_kz,validity_days,activation_code,source_url,source_checked_at,notes,active_from,created_by,created_at)
 SELECT p.id,(SELECT COALESCE(MAX(version_no),0)+1 FROM plan_versions WHERE plan_id=p.id),i.price_kz,i.validity_days,i.activation_code,i.source_url,'2026-10-11',i.notes,NOW(),NULL,NOW()
 FROM qp_verified_import i JOIN operators o ON o.slug=i.operator_slug JOIN plans p ON p.operator_id=o.id AND p.name=i.name
