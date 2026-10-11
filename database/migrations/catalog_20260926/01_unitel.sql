@@ -90,12 +90,10 @@ UPDATE plan_versions pv
 INNER JOIN plans p ON p.id=pv.plan_id
 INNER JOIN operators o ON o.id=p.operator_id
 INNER JOIN qp_plan_import i ON i.operator_slug=o.slug AND i.plan_name=p.name
+LEFT JOIN plan_versions reviewed ON reviewed.plan_id=p.id AND reviewed.notes LIKE '%[CATALOG:20260926]%'
 SET pv.active_to=NOW()
 WHERE pv.active_to IS NULL
-  AND NOT EXISTS (
-      SELECT 1 FROM plan_versions x
-      WHERE x.plan_id=p.id AND x.notes LIKE '%[CATALOG:20260926]%'
-  );
+  AND reviewed.id IS NULL;
 
 INSERT INTO plan_versions
 (plan_id,version_no,price_kz,validity_days,activation_code,source_url,source_checked_at,notes,active_from,created_by,created_at)
