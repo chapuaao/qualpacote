@@ -56,7 +56,11 @@ Fontes e critérios: [`docs/CATALOG_SOURCES_20260926.md`](docs/CATALOG_SOURCES_2
 
 ## Administração
 
-O admin gere operadoras, planos, benefícios, tarifas normais, fontes e versões. A área **Tarifas de saldo** é a base da comparação “pacote vs. saldo normal”.
+O admin gere operadoras, planos, benefícios, tarifas normais, fontes e versões. A página **Estatísticas** mostra visitantes anónimos, consultas, votos, taxa de aprovação, evolução diária e históricos com filtros por data. Cada recomendação pública permite **Gostei / Não gostei**, sem publicar contagens ou percentagens. A área **Tarifas de saldo** é a base da comparação “pacote vs. saldo normal”.
+
+Para instalações existentes, importar `database/migrations/20261011_usage_statistics.sql` antes de utilizar as estatísticas. Na instalação nova, as tabelas já fazem parte de `database/schema.sql`.
+
+A identificação é por navegador, com cookie anónimo; não representa uma contagem exacta de pessoas. Actualizar a mesma página de resultados não duplica consultas e repetir um voto não duplica opiniões. Um novo clique de consulta conta novamente. Consultas antigas permanecem no total, sem inventar visitantes históricos.
 
 ## Verificação diária
 
@@ -71,6 +75,14 @@ A rotina verifica fontes de planos e tarifas. Mudanças exigem revisão humana a
 ```bash
 php tests/RecommendationEngineTest.php
 php tests/RestrictionIntelligenceTest.php
+```
+
+Teste de integração numa base isolada criada e removida automaticamente (requer servidor de testes e permissão CREATE/DROP DATABASE):
+
+```bash
+QUALPACOTE_TEST_DSN='mysql:host=127.0.0.1;port=3306;charset=utf8mb4' \
+QUALPACOTE_TEST_USER=root QUALPACOTE_TEST_PASSWORD='senha-de-testes' \
+php tests/UsageStatisticsTest.php
 ```
 
 Lint:

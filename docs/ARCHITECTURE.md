@@ -71,3 +71,9 @@ Alguns detalhes que não justificam novas tabelas próprias são codificados de 
 - `[REQUIREMENT] ... [/REQUIREMENT]` marca uma condição necessária antes de activar a oferta.
 
 Estas convenções são internas e nunca aparecem como metalinguagem para o utilizador.
+
+## Utilização e opinião
+
+`UsageSession` mantém o identificador anónimo e tokens de consulta emitidos pelo servidor. `UsageRepository` regista visitantes/dias activos e, numa transacção, a consulta em `search_events` e os resultados apresentados (tipo, ID, versão, título e operadora). Um token único de consulta impede duplicação por actualização/repetição; um novo formulário emite outro token. A identidade do resultado separa pacote e saldo normal e preserva a versão original.
+
+`feedback.php` valida método POST, sessão, CSRF, escolha binária e pertença do resultado. Actualiza uma única opinião na linha do resultado. Respostas públicas não contêm agregados; sem JavaScript usa redireccionamento 303 para a consulta. As estatísticas são lidas exclusivamente depois da autenticação em `admin/index.php`, incluindo consultas antigas. As páginas com tokens ou dados administrativos enviam `Cache-Control: no-store`.

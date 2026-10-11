@@ -75,3 +75,32 @@ Exemplo de cron diário:
 ```
 
 A pasta `/scripts` é bloqueada pelo `.htaccess`, portanto a rotina não fica exposta como endpoint público.
+
+## Estatísticas privadas e votação — 11/10/2026
+
+Nesta alteração, importar pelo phpMyAdmin ou pelo terminal:
+
+```bash
+mysql -u UTILIZADOR -p BASE < database/migrations/20261011_usage_statistics.sql
+```
+
+A migração é idempotente, acrescenta quatro tabelas e preserva `search_events` e o catálogo. Instalações novas já recebem as tabelas em `database/schema.sql`. Se a migração estiver pendente, a comparação continua disponível e as consultas continuam no registo antigo; o admin mostra a indicação para importar a migração.
+
+Depois de copiar o código (incluindo `feedback.php` e os novos ficheiros em `app/`), validar:
+
+1. abrir a página pública e fazer uma consulta válida;
+2. cada resultado apresenta **Gostei / Não gostei**;
+3. votar, repetir o mesmo voto e mudar de opinião: fica apenas um voto actual por resultado;
+4. actualizar a URL de resultados não cria outra consulta; clicar novamente no formulário cria;
+5. entrar no admin → **Estatísticas** e confirmar consultas, visitantes e votos;
+6. filtrar datas e confirmar a evolução diária, a opinião por recomendação e os históricos;
+7. sem autenticação administrativa, `/admin/?page=statistics` apresenta apenas o login;
+8. repetir a votação com JavaScript desligado: regressa à página de resultados.
+
+O cookie `qualpacote_visitor` é aleatório, HttpOnly e SameSite=Lax, com validade de um ano; a base guarda apenas o seu hash. Não são recolhidos IPs, nomes ou impressão digital do navegador. A contagem representa navegadores aproximados, incluindo possíveis bots, e começa na activação desta versão. Consultas antigas continuam contadas, sem identificação retroactiva.
+
+A votação exige sessão e CSRF, aceita apenas resultados registados para esse visitante e mantém uma única opinião actual por resultado de cada consulta. Outro clique de consulta pode gerar uma nova avaliação do mesmo pacote; não há promessa de impedir abuso por criação de múltiplas identidades anónimas.
+
+Datas seguem `APP_TIMEZONE` (Africa/Luanda por omissão). O período usa datas inclusivas até 366 dias. Visitantes do período são navegadores activos nesse intervalo; visitantes que consultaram são distintos entre consultas registadas. Votos usam a data da última alteração da opinião. A taxa de aprovação é Gostei / (Gostei + Não gostei), excluindo resultados sem voto. Não há histórico separado de todas as mudanças do mesmo voto.
+
+Sem substituição de `.env` e sem deploy automático.

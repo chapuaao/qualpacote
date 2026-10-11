@@ -2,11 +2,13 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/app/bootstrap.php';
+header('Cache-Control: no-store');
 
 use QualPacote\Auth;
 use QualPacote\Csrf;
 use QualPacote\Database;
 use QualPacote\PlanRepository;
+use QualPacote\UsageRepository;
 
 $repo = new PlanRepository(Database::connection());
 $message = null;
@@ -39,7 +41,7 @@ if (!$user):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Admin — QualPacote</title>
-<link rel="stylesheet" href="/assets/app.css?v=2">
+<link rel="stylesheet" href="/assets/app.css?v=3">
 </head>
 <body class="admin-body">
 <main class="login-wrap">
@@ -124,6 +126,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+$usageStats = null;
+$usageError = null;
+$from = is_string($_GET['from'] ?? null) ? $_GET['from'] : date('Y-m-d', strtotime('-29 days'));
+$to = is_string($_GET['to'] ?? null) ? $_GET['to'] : date('Y-m-d');
+if ($page === 'statistics') {
+    try {
+        $usageStats = (new UsageRepository(Database::connection()))->statistics($from, $to);
+    } catch (InvalidArgumentException $e) {
+        $usageError = $e->getMessage();
+    } catch (Throwable) {
+        $usageError = 'Estatísticas indisponíveis. Verifique a ligação à base de dados e a importação de database/migrations/20261011_usage_statistics.sql.';
+    }
+}
 $stats = $repo->dashboardStats();
 $operators = $repo->operators(false);
 $plans = $repo->planList();
@@ -151,7 +166,7 @@ if ($tariffRates === []) $tariffRates = [$blankRate];
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Admin — QualPacote</title>
-<link rel="stylesheet" href="/assets/app.css?v=2">
+<link rel="stylesheet" href="/assets/app.css?v=3">
 </head>
 <body class="admin-body">
 <div class="admin-shell">
@@ -160,6 +175,7 @@ if ($tariffRates === []) $tariffRates = [$blankRate];
 </a>
 <nav>
 <a href="/admin/" class="<?= $page === 'dashboard' ? 'active' : '' ?>">Visão geral</a>
+<a href="/admin/?page=statistics" class="<?= $page === 'statistics' ? 'active' : '' ?>">Estatísticas</a>
 <a href="/admin/?page=plans" class="<?= in_array($page,['plans','plan-form'],true) ? 'active' : '' ?>">Planos</a>
 <a href="/admin/?page=tariffs" class="<?= in_array($page,['tariffs','tariff-form'],true) ? 'active' : '' ?>">Tarifas de saldo</a>
 <a href="/admin/?page=operators" class="<?= $page === 'operators' ? 'active' : '' ?>">Operadoras</a>
@@ -253,6 +269,9 @@ if ($tariffRates === []) $tariffRates = [$blankRate];
 <input type="checkbox" disabled> Pacotes diários, semanais, mensais e combos</label>
 </div>
 </section>
+
+<?php elseif ($page === 'statistics'): ?>
+<?php require dirname(__DIR__) . '/app/usage-statistics.php'; ?>
 
 <?php elseif ($page === 'operators'): ?>
 <div class="admin-heading">

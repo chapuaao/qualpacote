@@ -8,14 +8,34 @@ on:
 jobs:
   php:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-password
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -ptest-password"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
+          extensions: pdo_mysql, mbstring
       - name: Lint
         run: find . -name "*.php" -not -path "./vendor/*" -print0 | xargs -0 -n1 php -l
       - name: Recommendation engine tests
         run: |
           php tests/RecommendationEngineTest.php
           php tests/RestrictionIntelligenceTest.php
+      - name: Usage statistics integration tests
+        env:
+          QUALPACOTE_TEST_DSN: "mysql:host=127.0.0.1;port=3306;charset=utf8mb4"
+          QUALPACOTE_TEST_USER: root
+          QUALPACOTE_TEST_PASSWORD: test-password
+        run: php tests/UsageStatisticsTest.php
