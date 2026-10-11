@@ -55,7 +55,11 @@ A revisão de 26/09/2026 adiciona 113 opções de planos/aditivos e 248 linhas d
 
 ### Vigilância de fontes
 
-`scripts/check_sources.php` consulta as fontes dos planos e tarifas publicados, calcula hash do conteúdo e regista alterações em `source_checks`. O detector não altera tarifários: sinaliza a necessidade de revisão.
+`scripts/check_sources.php` usa `SourceFetcher`, `SourceDocument` e `CatalogRepository`. Conserva fontes, snapshots, propostas, revisões individuais e execuções em `catalog_*`. O hash de texto elimina ruído de scripts/cabeçalhos/rodapés; documentos binários conservam os bytes originais. A alteração bloqueia propostas antigas e cria novos rascunhos. A aprovação bloqueia fonte/plano, verifica a versão esperada e publica na mesma transacção. O worker usa um lock MySQL para impedir execuções sobrepostas e nunca publica.
+
+`plan_version_rules` conserva regras estruturadas por versão: categoria, família, dependência, coexistência, repetição, incompatibilidades, fim da oferta, unidade de cobrança e identidade estável da oferta na fonte. Regras ausentes são tratadas como desconhecidas. `catalog.php` permite procurar ofertas por nome, operadora, categoria e orçamento.
+
+O motor combina somente regras de coexistência confirmadas e conserva as restrições e validades de cada componente. `usage_result_details` guarda identidade canónica e componentes de combinações, preservando as tabelas e votos anteriores. A categoria router não recebe tarifas móveis de saldo normal.
 
 ### Estatísticas
 

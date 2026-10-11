@@ -14,7 +14,7 @@ CREATE TEMPORARY TABLE qp_plan_import (
     source_url VARCHAR(600) NOT NULL,
     notes TEXT NULL,
     PRIMARY KEY (operator_slug, plan_name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO qp_plan_import (operator_slug,plan_name,price_kz,validity_days,activation_code,source_url,notes) VALUES
 ('africell','Afrinet 1D 400 MB',300,1,'*123*1*1*2# | MyAfricell | lojas/agentes | Afrimoney | ATM/MCX Express | apps bancárias | Telopay/PagáSó/5Linhas/PayPay','https://www.africell.ao/afrinet/','[CATALOG:20260926]\nDados Afrinet conforme página oficial.'),
@@ -58,9 +58,10 @@ UPDATE plan_versions pv
 INNER JOIN plans p ON p.id=pv.plan_id
 INNER JOIN operators o ON o.id=p.operator_id
 INNER JOIN qp_plan_import i ON i.operator_slug=o.slug AND i.plan_name=p.name
+LEFT JOIN plan_versions reviewed ON reviewed.plan_id=p.id AND reviewed.notes LIKE '%[CATALOG:20260926]%'
 SET pv.active_to=NOW()
 WHERE pv.active_to IS NULL
-  AND NOT EXISTS (SELECT 1 FROM plan_versions x WHERE x.plan_id=p.id AND x.notes LIKE '%[CATALOG:20260926]%');
+  AND reviewed.id IS NULL;
 
 INSERT INTO plan_versions
 (plan_id,version_no,price_kz,validity_days,activation_code,source_url,source_checked_at,notes,active_from,created_by,created_at)
@@ -82,7 +83,7 @@ CREATE TEMPORARY TABLE qp_benefit_import (
     end_time TIME NULL,
     app_scope VARCHAR(500) NULL,
     label VARCHAR(255) NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO qp_benefit_import (operator_slug,plan_name,benefit_type,quantity,unit,network_scope,start_time,end_time,app_scope,label) VALUES
 ('africell','Afrinet 1D 400 MB','DATA',400,'MB','ALL',NULL,NULL,NULL,NULL),

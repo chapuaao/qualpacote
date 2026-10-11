@@ -76,3 +76,11 @@ Quando não houver tarifa ou plano verificado, mostrar ausência de informação
 ## Precisão
 
 Não usar “melhor” de forma absoluta. O primeiro resultado representa a opção que mais atende aos critérios informados dentro dos dados verificados no catálogo.
+
+## Combinações e categorias
+
+Usar apenas coexistência confirmada na mesma operadora. Mostrar custo total, saldo restante e passos de compra por componente; a validade de uma compra não representa toda a combinação. Uma dependência resolvida não remove outras limitações, como informação antiga ou equipamento indisponível.
+
+Não assumir renovações, várias subscrições, compatibilidade entre famílias ou validade do saldo normal. A declaração de plano prévio activo vale para elegibilidade durante todo o período; os seus benefícios e custo passado ficam fora da nova compra. Os resultados com condições não confirmadas não garantem os mínimos.
+
+Telemóvel e MiFi/router são categorias separadas. Equipamento, instalação, cobertura física e custos iniciais terão de ser verificados antes de introduzir internet fixa, fibra ou contratos. A cobertura comercial total não é prometida enquanto houver fontes contraditórias ou inacessíveis.

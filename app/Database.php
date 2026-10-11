@@ -36,6 +36,8 @@ final class Database
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]);
+            // SQL validity windows and PHP dates must use the same local offset.
+            self::$connection->exec("SET time_zone = '" . date('P') . "'");
         } catch (PDOException $e) {
             throw new RuntimeException('Não foi possível ligar à base de dados.', 0, $e);
         }

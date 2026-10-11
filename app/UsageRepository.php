@@ -11,7 +11,14 @@ use Throwable;
 
 final class UsageRepository
 {
+    private ?bool $detailsAvailable = null;
     public function __construct(private PDO $db) {}
+
+    private function hasDetails(): bool
+    {
+        if ($this->detailsAvailable === null) $this->detailsAvailable = (bool) $this->db->query("SHOW TABLES LIKE 'usage_result_details'")->fetchColumn();
+        return $this->detailsAvailable;
+    }
 
     public function recordVisit(string $visitor): void
     {
@@ -23,6 +30,7 @@ final class UsageRepository
 
     public static function resultKey(array $result): string
     {
+        if ((!empty($result['is_combination']) || ($result['cycles'] ?? 1) > 1) && !empty($result['result_key'])) return $result['result_key'];
         $item = $result['kind'] === 'plan' ? $result['plan'] : $result['tariff'];
         return $result['kind'] . ':' . (int) $item['id'] . ':' . (int) $item['version_id'];
     }
@@ -41,7 +49,9 @@ final class UsageRepository
             $insert = $this->db->prepare('INSERT INTO usage_results (search_event_id,vote_token,kind,item_id,version_id,operator_name,title,result_position) VALUES (?,?,?,?,?,?,?,?)');
             foreach ($results as $i => $result) {
                 $item = $result['kind'] === 'plan' ? $result['plan'] : $result['tariff'];
-                $insert->execute([$searchId, bin2hex(random_bytes(32)), $result['kind'], (int) $item['id'], (int) $item['version_id'], $result['operator_name'], $result['title'], $i + 1]);
+                $insert->execute([$searchId, bin2hex(random_bytes(32)), $result['kind'], (int) $item['id'], (int) $item['version_id'], $result['operator_name'], substr($result['title'],0,255), $i + 1]);
+                $resultId = (int) $this->db->lastInsertId();
+                if ($this->hasDetails()) $this->db->prepare('INSERT INTO usage_result_details (result_id,result_key,components_json) VALUES (?,?,?)')->execute([$resultId,self::resultKey($result),json_encode($result['components'] ?? [], JSON_UNESCAPED_UNICODE)]);
             }
             $this->db->commit();
         } catch (Throwable $e) {
@@ -60,11 +70,12 @@ final class UsageRepository
         $stmt->execute([$visitor, $token]);
         $id = $stmt->fetchColumn();
         if ($id === false) return null;
-        $stmt = $this->db->prepare('SELECT kind,item_id,version_id,vote_token,vote FROM usage_results WHERE search_event_id=? ORDER BY result_position');
+        $select = $this->hasDetails() ? 'SELECT r.kind,r.item_id,r.version_id,r.vote_token,r.vote,d.result_key FROM usage_results r LEFT JOIN usage_result_details d ON d.result_id=r.id WHERE r.search_event_id=? ORDER BY r.result_position' : 'SELECT kind,item_id,version_id,vote_token,vote FROM usage_results WHERE search_event_id=? ORDER BY result_position';
+        $stmt = $this->db->prepare($select);
         $stmt->execute([$id]);
         $results = [];
         foreach ($stmt->fetchAll() as $row) {
-            $results[$row['kind'] . ':' . $row['item_id'] . ':' . $row['version_id']] = $row;
+            $results[$row['result_key'] ?? ($row['kind'] . ':' . $row['item_id'] . ':' . $row['version_id'])] = $row;
         }
         return $results;
     }

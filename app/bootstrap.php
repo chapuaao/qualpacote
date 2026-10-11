@@ -31,7 +31,11 @@ header("Content-Security-Policy: default-src 'self'; style-src 'self'; script-sr
 require_once __DIR__ . '/Database.php';
 require_once __DIR__ . '/Csrf.php';
 require_once __DIR__ . '/Auth.php';
+require_once __DIR__ . '/PlanRules.php';
 require_once __DIR__ . '/PlanRepository.php';
+require_once __DIR__ . '/SourceDocument.php';
+require_once __DIR__ . '/SourceFetcher.php';
+require_once __DIR__ . '/CatalogRepository.php';
 require_once __DIR__ . '/RecommendationEngine.php';
 require_once __DIR__ . '/UsageSession.php';
 require_once __DIR__ . '/UsageRepository.php';
