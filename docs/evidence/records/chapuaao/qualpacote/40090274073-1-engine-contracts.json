@@ -1,0 +1,41 @@
+{
+  "id": "40090274073-1-engine-contracts",
+  "interpretation": "Historical execution evidence; preservation does not certify current software.",
+  "kind": "execution",
+  "payload": {
+    "bytes": 664,
+    "members": [
+      {
+        "bytes": 138,
+        "path": "runner/intelligence-context/40090274073-1-engine-contracts.json",
+        "sha256": "4271602c1bdb2435caa4187404e4fce6c59faee068fd206d544122ae4c24f6d8"
+      },
+      {
+        "bytes": 294,
+        "path": "runner/intelligence-engine-tests.txt",
+        "sha256": "c262535f208de34f6d247e70dfc155caaea4784a3ae96a5d96e591fc0fbdced7"
+      }
+    ],
+    "path": "objects/sha256/6a/6abfaba5803d2282fff2221f191096df5ea906aa386916881a9ffaa1e8bebde7.zip",
+    "sha256": "6abfaba5803d2282fff2221f191096df5ea906aa386916881a9ffaa1e8bebde7"
+  },
+  "record_sha256": "9163c684c33653f5fd5df7303551bf86bbcfa4499485c0482f1df0057aa63b94",
+  "schema": "IntelligenceEvidence/1",
+  "sensitivity": "publica",
+  "source": {
+    "attempt": "1",
+    "checkout_head": "1f322c296e35127da4cf4bd3a84eaccc1258b73e",
+    "commit": "1f322c296e35127da4cf4bd3a84eaccc1258b73e",
+    "commit_role": "checkout_head",
+    "configuration_sha256": "e7358118767e482f5fbc2f145705af9a70e67cfc4351aebcf1f049d2d0a51493",
+    "engine_sha256": "61d3914743d475fda1cdab24e4e2e5f6f8f970707c16c0059349af262708117e",
+    "event": "pull_request",
+    "job": "evidence-contracts",
+    "repository": "chapuaao/qualpacote",
+    "run_id": "40090274073",
+    "tracked_patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_sources_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "working_tree_dirty": false
+  },
+  "status": "success"
+}
