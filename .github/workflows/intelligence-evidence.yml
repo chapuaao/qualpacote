@@ -1,0 +1,30 @@
+name: Intelligence evidence contracts
+
+on:
+  pull_request:
+    paths:
+      - 'tools/intelligence/**'
+      - '.intelligence.json'
+      - '.github/workflows/intelligence-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  evidence-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate evidence preservation contracts
+        shell: bash
+        run: python3 -m unittest discover -s tools/intelligence -p 'test_*.py' > "$RUNNER_TEMP/intelligence-engine-tests.txt" 2>&1
+      - name: Preserve execution result independently of Actions artifacts
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EVIDENCE_STATUS: ${{ job.status }}
+        run: python3 tools/intelligence/ci.py --name engine-contracts --status "$EVIDENCE_STATUS" --publish

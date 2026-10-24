@@ -23,3 +23,12 @@
 3. Rapidez no fluxo público.
 4. Administração simples e auditável.
 5. Evolução sem quebrar deploy manual.
+
+## Continuidade e inteligência de engenharia
+
+Consultar `.intelligence.json` e docs/ARCHITECTURE.md antes de executar gates.
+Guardar evidência pública de contratos com origem e hashes em cápsulas na
+branch dedicada intelligence/evidence; esta excepção técnica não autoriza
+versionar logs, dumps ou bundles nas branches do produto. Dados restritos e
+logs de produção continuam fora deste repositório público. O setup não publica
+a aplicação nem altera a revisão humana de propostas de catálogo.
