@@ -1,0 +1,64 @@
+{
+  "schema": "ProjectIntelligence/1",
+  "repository": "chapuaao/qualpacote",
+  "store": "docs/evidence",
+  "archive_branch": "intelligence/evidence",
+  "sensitivity": "publica",
+  "knowledge_entrypoint": "docs/ARCHITECTURE.md",
+  "engine": {
+    "source": "tendadigitalangola/poligest_central/tools/intelligence/evidence.py",
+    "sha256": "61d3914743d475fda1cdab24e4e2e5f6f8f970707c16c0059349af262708117e"
+  },
+  "profiles": {
+    "evidence": [
+      [
+        "{python}",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/intelligence",
+        "-p",
+        "test_*.py"
+      ]
+    ],
+    "portable": [
+      [
+        "{python}",
+        "tools/intelligence/php_lint.py"
+      ],
+      [
+        "php",
+        "tests/RecommendationEngineTest.php"
+      ],
+      [
+        "php",
+        "tests/RestrictionIntelligenceTest.php"
+      ],
+      [
+        "php",
+        "tests/SourceDocumentTest.php"
+      ],
+      [
+        "{python}",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/intelligence",
+        "-p",
+        "test_*.py"
+      ]
+    ]
+  },
+  "ci_inputs": {
+    "engine-contracts": [
+      "$RUNNER_TEMP/intelligence-engine-tests.txt"
+    ],
+    "php-checks": [
+      "$RUNNER_TEMP/qualpacote-php-lint.txt",
+      "$RUNNER_TEMP/qualpacote-php-unit.txt",
+      "$RUNNER_TEMP/qualpacote-php-integration.txt"
+    ]
+  }
+}

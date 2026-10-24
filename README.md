@@ -1,6 +1,6 @@
 # QualPacote
 
-Central de inteligência de saldos e pacotes móveis para Angola.
+Central de inteligência de saldos e pacotes para telemóvel e MiFi/router em Angola.
 
 Domínio: `https://qualpacote.poligest.ao/`
 
@@ -54,6 +54,21 @@ Instruções: [`database/migrations/catalog_20260926/README.md`](database/migrat
 
 Fontes e critérios: [`docs/CATALOG_SOURCES_20260926.md`](docs/CATALOG_SOURCES_20260926.md).
 
+## Informação e combinações — 11/10/2026
+
+O upgrade acrescenta 20 ofertas: 11 Movinet, 3 Kuia/Takuiá e 6 Konekta 4G. Corrige as quatro opções Afrimix e confirma regras da família FLEX sem alterar a data de verificação dos seus preços antigos. Os pacotes Konekta ficam numa categoria própria, para quem já tem SIM e equipamento compatível.
+
+O cálculo conserva carteiras de dados e MIN/SMS, verifica as aplicações escolhidas, separa noite de madrugada, respeita a rede dos SMS e só repete compras quando existe confirmação. Combina pacotes da mesma operadora com coexistência expressamente registada, inclui o custo da base necessária e apresenta compras, validades, fontes e orçamento restante. As combinações têm limites documentados; não há promessa de óptimo global ou catálogo completo.
+
+A rotina diária descobre páginas oficiais e prepara propostas. O admin compara a versão publicada com a evidência recolhida, corrige o rascunho e aprova uma nova versão. A publicação exige revisão humana. Existem leitores de Afrimix, Movinet e Konekta 4G; outras fontes, PDFs e imagens geram trabalho de revisão manual.
+
+Em instalações existentes, depois da migração de estatísticas, importar nesta ordem:
+
+1. `database/migrations/20261011_catalog_intelligence.sql`
+2. `database/migrations/20261011_catalog_verified.sql`
+
+Fontes e limitações: [revisão de 11/10/2026](docs/CATALOG_SOURCES_20261011.md). Operação e cron: [manutenção](docs/CATALOG_MAINTENANCE.md) e [deploy](docs/DEPLOY.md).
+
 ## Administração
 
 O admin gere operadoras, planos, benefícios, tarifas normais, fontes e versões. A página **Estatísticas** mostra visitantes anónimos, consultas, votos, taxa de aprovação, evolução diária e históricos com filtros por data. Cada recomendação pública permite **Gostei / Não gostei**, sem publicar contagens ou percentagens. A área **Tarifas de saldo** é a base da comparação “pacote vs. saldo normal”.
@@ -75,6 +90,7 @@ A rotina verifica fontes de planos e tarifas. Mudanças exigem revisão humana a
 ```bash
 php tests/RecommendationEngineTest.php
 php tests/RestrictionIntelligenceTest.php
+php tests/SourceDocumentTest.php
 ```
 
 Teste de integração numa base isolada criada e removida automaticamente (requer servidor de testes e permissão CREATE/DROP DATABASE):
@@ -84,6 +100,8 @@ QUALPACOTE_TEST_DSN='mysql:host=127.0.0.1;port=3306;charset=utf8mb4' \
 QUALPACOTE_TEST_USER=root QUALPACOTE_TEST_PASSWORD='senha-de-testes' \
 php tests/UsageStatisticsTest.php
 ```
+
+Execute também `php tests/CatalogIntegrationTest.php` com as mesmas variáveis de testes. Os testes criam e removem bases isoladas; nunca usar credenciais de produção. Ambos verificam o fluxo HTTP local.
 
 Lint:
 

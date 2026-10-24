@@ -9,8 +9,11 @@ use QualPacote\Csrf;
 use QualPacote\Database;
 use QualPacote\PlanRepository;
 use QualPacote\UsageRepository;
+use QualPacote\CatalogRepository;
 
 $repo = new PlanRepository(Database::connection());
+$catalog = new CatalogRepository(Database::connection());
+$catalogAvailable = $catalog->available();
 $message = null;
 $error = null;
 
@@ -41,7 +44,7 @@ if (!$user):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Admin — QualPacote</title>
-<link rel="stylesheet" href="/assets/app.css?v=3">
+<link rel="stylesheet" href="/assets/app.css?v=4">
 </head>
 <body class="admin-body">
 <main class="login-wrap">
@@ -80,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $repo->saveOperator($_POST);
                 $message = 'Operadora guardada.';
                 $page = 'operators';
-            } elseif ($action === 'save_plan') {
+            } elseif (in_array($action, ['save_plan','save_catalog_draft'], true)) {
                 $types = (array) ($_POST['benefit_type'] ?? []);
                 $quantities = (array) ($_POST['benefit_quantity'] ?? []);
                 $units = (array) ($_POST['benefit_unit'] ?? []);
@@ -93,13 +96,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 foreach ($types as $i => $type) {
                     $benefits[] = ['type'=>$type,'quantity'=>$quantities[$i] ?? 0,'unit'=>$units[$i] ?? '', 'network_scope'=>$networks[$i] ?? 'ALL','start_time'=>$starts[$i] ?? '','end_time'=>$ends[$i] ?? '','app_scope'=>$apps[$i] ?? '','label'=>$labels[$i] ?? ''];
                 }
-                $repo->savePlan($_POST, $benefits, (int) $user['id']);
+                $data = $_POST;
+                $data['rules'] = (array) ($_POST['rules'] ?? []);
+                if ($action === 'save_catalog_draft') {
+                    $original = $catalog->proposal((int) $_POST['proposal_id']);
+                    $data['benefits'] = $benefits;
+                    $data['id'] = max(0, (int) ($_POST['catalog_plan_id'] ?? $original['plan_id'] ?? 0));
+                    if ($data['id'] !== (int) ($original['plan_id'] ?? 0)) $data['rules']['source_offer_key'] = '';
+                    $newId = $catalog->propose($catalog->source((int) $original['source_id']), (int) $original['snapshot_id'], $data, ['Proposta preparada para revisão humana.']);
+                    if ($newId !== (int) $original['id']) $catalog->dismiss((int) $original['id'], (int) $user['id']);
+                    header('Location: /admin/?page=catalog-review&id=' . $newId); exit;
+                }
+                $repo->savePlan($data, $benefits, (int) $user['id']);
                 $message = 'Plano guardado e nova versão registada.';
                 $page = 'plans';
             } elseif ($action === 'set_plan_state') {
                 $repo->setPlanState((int) ($_POST['id'] ?? 0), !empty($_POST['active']), !empty($_POST['published']), (int) $user['id']);
                 $message = 'Estado do plano actualizado.';
                 $page = 'plans';
+            } elseif ($action === 'register_source') {
+                if (!$catalogAvailable) throw new RuntimeException('Importe a migração do catálogo.');
+                $catalog->register((int) $_POST['operator_id'], trim((string) $_POST['url']), trim((string) $_POST['title']), (string) $_POST['source_kind']);
+                $message = 'Fonte adicionada à próxima verificação.'; $page = 'catalog';
+            } elseif ($action === 'configure_source') {
+                $catalog->configure((int) $_POST['id'], (string) $_POST['adapter'], (string) $_POST['status'], !empty($_POST['enabled']));
+                $message = 'Fonte actualizada.'; $page = 'catalog';
+            } elseif ($action === 'approve_catalog') {
+                if (empty($_POST['confirmed'])) throw new RuntimeException('Confirme que reviu a fonte e as condições.');
+                $catalog->approve((int) $_POST['id'], (int) $user['id']);
+                $message = 'Proposta publicada numa nova versão, com evidência e histórico.'; $page = 'catalog';
+            } elseif ($action === 'dismiss_catalog') {
+                $catalog->dismiss((int) $_POST['id'], (int) $user['id']);
+                $message = 'Proposta arquivada.'; $page = 'catalog';
             } elseif ($action === 'save_tariff') {
                 $types = (array) ($_POST['rate_service_type'] ?? []);
                 $prices = (array) ($_POST['rate_price'] ?? []);
@@ -144,8 +172,14 @@ $operators = $repo->operators(false);
 $plans = $repo->planList();
 $tariffs = $repo->tariffList();
 
+$review = null;
+if ($catalogAvailable && in_array($page, ['catalog-review','catalog-edit'], true)) $review = $catalog->proposal((int) ($_GET['id'] ?? 0));
 $editingPlan = null;
 if ($page === 'plan-form' && isset($_GET['id'])) $editingPlan = $repo->findPlan((int) $_GET['id']);
+if ($page === 'catalog-edit' && $review) {
+    $editingPlan = $review['payload']; $editingPlan['id'] = $review['plan_id'] ?? 0; $editingPlan['published'] = 0;
+    $page = 'plan-form';
+}
 $editingTariff = null;
 if ($page === 'tariff-form' && isset($_GET['id'])) $editingTariff = $repo->findTariff((int) $_GET['id']);
 $editingOperator = null;
@@ -166,7 +200,7 @@ if ($tariffRates === []) $tariffRates = [$blankRate];
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Admin — QualPacote</title>
-<link rel="stylesheet" href="/assets/app.css?v=3">
+<link rel="stylesheet" href="/assets/app.css?v=4">
 </head>
 <body class="admin-body">
 <div class="admin-shell">
@@ -178,6 +212,7 @@ if ($tariffRates === []) $tariffRates = [$blankRate];
 <a href="/admin/?page=statistics" class="<?= $page === 'statistics' ? 'active' : '' ?>">Estatísticas</a>
 <a href="/admin/?page=plans" class="<?= in_array($page,['plans','plan-form'],true) ? 'active' : '' ?>">Planos</a>
 <a href="/admin/?page=tariffs" class="<?= in_array($page,['tariffs','tariff-form'],true) ? 'active' : '' ?>">Tarifas de saldo</a>
+<a href="/admin/?page=catalog" class="<?= str_starts_with($page, 'catalog') ? 'active' : '' ?>">Fontes e revisão</a>
 <a href="/admin/?page=operators" class="<?= $page === 'operators' ? 'active' : '' ?>">Operadoras</a>
 <a href="/" target="_blank" rel="noopener">Abrir site</a>
 </nav>
@@ -246,7 +281,7 @@ if ($tariffRates === []) $tariffRates = [$blankRate];
 <strong>
 <?= (int) $stats['source_changes'] ?>
 </strong>
-<span>fontes com alteração detectada</span>
+<span>fontes com revisão pendente</span><a href="/admin/?page=catalog">Rever fontes</a>
 </article>
 </div>
 <section class="admin-panel">
@@ -270,6 +305,8 @@ if ($tariffRates === []) $tariffRates = [$blankRate];
 </div>
 </section>
 
+<?php elseif (in_array($page, ['catalog','catalog-review'], true)): ?>
+<?php require __DIR__ . '/catalog.php'; ?>
 <?php elseif ($page === 'statistics'): ?>
 <?php require dirname(__DIR__) . '/app/usage-statistics.php'; ?>
 
@@ -497,7 +534,12 @@ if ($tariffRates === []) $tariffRates = [$blankRate];
 </div>
 <form class="admin-form admin-panel" method="post">
 <input type="hidden" name="_csrf" value="<?= e(Csrf::token()) ?>">
-<input type="hidden" name="action" value="save_plan">
+<input type="hidden" name="action" value="<?= $review ? 'save_catalog_draft' : 'save_plan' ?>">
+<?php if ($review): ?><input type="hidden" name="proposal_id" value="<?= (int) $review['id'] ?>"><p>Guardar prepara a proposta; a publicação é feita depois da revisão.</p>
+<label>Oferta a rever<select name="catalog_plan_id"><option value="0"<?= selected($review['plan_id'] ?? 0, 0) ?>>Nova oferta</option>
+<?php foreach ($repo->planList() as $linkedPlan): if ((int) $linkedPlan['operator_id'] !== (int) $editingPlan['operator_id']) continue; ?><option value="<?= (int) $linkedPlan['id'] ?>"<?= selected($review['plan_id'] ?? 0, $linkedPlan['id']) ?>><?= e($linkedPlan['name']) ?></option><?php endforeach; ?>
+</select><small>Uma página pode conter várias ofertas. Escolha a identidade correcta e confirme todos os campos abaixo.</small></label>
+<?php endif; ?>
 <input type="hidden" name="id" value="<?= (int) ($editingPlan['id'] ?? 0) ?>">
 <div class="panel-heading">
 <h2>Identificação</h2>
@@ -565,6 +607,23 @@ if ($tariffRates === []) $tariffRates = [$blankRate];
 <?php endforeach; ?>
 </div>
 <div class="panel-heading subsection">
+<h2>Condições verificadas</h2>
+</div>
+<?php if ($repo->hasRules()): $rules = $editingPlan['rules'] ?? []; ?>
+<input type="hidden" name="rules[source_offer_key]" value="<?= e($rules['source_offer_key'] ?? '') ?>">
+<div class="form-grid">
+<label>Utilização<select name="rules[category]"><option value="mobile"<?= selected($rules['category'] ?? 'mobile', 'mobile') ?>>Telemóvel</option><option value="router"<?= selected($rules['category'] ?? '', 'router') ?>>MiFi / router</option></select></label>
+<label>Família<input name="rules[family]" value="<?= e($rules['family'] ?? '') ?>" placeholder="Ex.: flex"></label>
+<label>Plano prévio necessário<input name="rules[requires_family]" value="<?= e($rules['requires_family'] ?? '') ?>" placeholder="Família exigida"></label>
+<label>Grupo compatível<input name="rules[combination_group]" value="<?= e($rules['combination_group'] ?? '') ?>"><small>Mesmo código só quando a coexistência estiver confirmada.</small></label>
+<label>Compras repetidas<select name="rules[repeat_policy]"><?php foreach (['unknown'=>'Não confirmado','sequential'=>'Só renovação / compras sucessivas','parallel'=>'Várias subscrições independentes'] as $v=>$l): ?><option value="<?= e($v) ?>"<?= selected($rules['repeat_policy'] ?? 'unknown', $v) ?>><?= e($l) ?></option><?php endforeach; ?></select></label>
+<label>Famílias incompatíveis<input name="rules[incompatible_families]" value="<?= e(implode(',',$rules['incompatible_families'] ?? [])) ?>" placeholder="Códigos separados por vírgula"></label>
+<label>Cobrança de voz<select name="rules[voice_step_seconds]"><?php foreach ([0=>'Não confirmada',1=>'Por segundo',60=>'Por minuto iniciado'] as $v=>$l): ?><option value="<?= $v ?>"<?= selected($rules['voice_step_seconds'] ?? 0,$v) ?>><?= e($l) ?></option><?php endforeach; ?></select></label>
+<label>Último dia da oferta<input type="date" name="rules[offer_ends_at]" value="<?= e($rules['offer_ends_at'] ?? '') ?>"></label>
+<label class="inline-check"><input type="checkbox" name="rules[allows_balance]" value="1"<?= checked(!empty($rules['allows_balance'])) ?>> Tarifa base publicada aplicável ao saldo extra</label>
+</div>
+<?php endif; ?>
+<div class="panel-heading subsection">
 <h2>Fonte e publicação</h2>
 </div>
 <div class="form-grid">
@@ -583,7 +642,7 @@ if ($tariffRates === []) $tariffRates = [$blankRate];
 </div>
 <button class="primary-btn" type="submit">Guardar plano</button>
 </form>
-<?php if ($editingPlan): ?>
+<?php if ($editingPlan && !$review): ?>
 <form method="post" class="state-form admin-panel">
 <input type="hidden" name="_csrf" value="<?= e(Csrf::token()) ?>">
 <input type="hidden" name="action" value="set_plan_state">

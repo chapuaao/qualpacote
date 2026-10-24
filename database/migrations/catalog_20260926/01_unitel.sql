@@ -14,7 +14,7 @@ CREATE TEMPORARY TABLE qp_plan_import (
     source_url VARCHAR(600) NOT NULL,
     notes TEXT NULL,
     PRIMARY KEY (operator_slug, plan_name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO qp_plan_import (operator_slug,plan_name,price_kz,validity_days,activation_code,source_url,notes) VALUES
 ('unitel','Plano Base',2000,30,NULL,'https://unitel.ao/wp-content/uploads/share_upload/2026/04/UNITEL_RevistaMaisProximaAbrMai2026DIGITAL.pdf','[CATALOG:20260926]
@@ -90,12 +90,10 @@ UPDATE plan_versions pv
 INNER JOIN plans p ON p.id=pv.plan_id
 INNER JOIN operators o ON o.id=p.operator_id
 INNER JOIN qp_plan_import i ON i.operator_slug=o.slug AND i.plan_name=p.name
+LEFT JOIN plan_versions reviewed ON reviewed.plan_id=p.id AND reviewed.notes LIKE '%[CATALOG:20260926]%'
 SET pv.active_to=NOW()
 WHERE pv.active_to IS NULL
-  AND NOT EXISTS (
-      SELECT 1 FROM plan_versions x
-      WHERE x.plan_id=p.id AND x.notes LIKE '%[CATALOG:20260926]%'
-  );
+  AND reviewed.id IS NULL;
 
 INSERT INTO plan_versions
 (plan_id,version_no,price_kz,validity_days,activation_code,source_url,source_checked_at,notes,active_from,created_by,created_at)
@@ -123,7 +121,7 @@ CREATE TEMPORARY TABLE qp_benefit_import (
     end_time TIME NULL,
     app_scope VARCHAR(500) NULL,
     label VARCHAR(255) NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO qp_benefit_import (operator_slug,plan_name,benefit_type,quantity,unit,network_scope,start_time,end_time,app_scope,label) VALUES
 ('unitel','Plano Base','VOICE',70,'MIN','ALL',NULL,NULL,NULL,NULL),

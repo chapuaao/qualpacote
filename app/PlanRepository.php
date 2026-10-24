@@ -7,9 +7,13 @@ use PDO;
 use RuntimeException;
 use Throwable;
 
+require_once __DIR__ . '/PlanRules.php';
+require_once __DIR__ . '/SourceFetcher.php';
+
 final class PlanRepository
 {
     private ?bool $tariffTablesAvailable = null;
+    private ?bool $rulesAvailable = null;
 
     public function __construct(private PDO $db)
     {
@@ -26,7 +30,7 @@ final class PlanRepository
     public function activePlans(array $operatorIds = []): array
     {
         $params = [];
-        $where = ['p.active = 1', 'p.published = 1', 'o.active = 1'];
+        $where = ['p.active = 1', 'p.published = 1', 'o.active = 1', 'pv.active_from <= NOW()', '(pv.active_to IS NULL OR pv.active_to > NOW())'];
         $this->appendOperatorFilter($where, $params, $operatorIds, 'p.operator_id');
 
         $sql = "
@@ -59,7 +63,7 @@ final class PlanRepository
         }
         foreach ($plans as &$plan) $plan['benefits'] = $benefitsByVersion[(int) $plan['version_id']] ?? [];
         unset($plan);
-        return $plans;
+        return $this->attachRules($plans);
     }
 
     public function activeTariffs(array $operatorIds = []): array
@@ -67,7 +71,7 @@ final class PlanRepository
         if (!$this->hasTariffTables()) return [];
 
         $params = [];
-        $where = ['t.active = 1', 't.published = 1', 'o.active = 1'];
+        $where = ['t.active = 1', 't.published = 1', 'o.active = 1', 'tv.active_from <= NOW()', '(tv.active_to IS NULL OR tv.active_to > NOW())'];
         $this->appendOperatorFilter($where, $params, $operatorIds, 't.operator_id');
 
         $sql = "
@@ -153,7 +157,7 @@ final class PlanRepository
         $benefitStmt = $this->db->prepare('SELECT * FROM benefits WHERE plan_version_id = ? ORDER BY id');
         $benefitStmt->execute([(int) $plan['version_id']]);
         $plan['benefits'] = $benefitStmt->fetchAll();
-        return $plan;
+        return $this->attachRules([$plan])[0];
     }
 
     public function findTariff(int $id): ?array
@@ -212,15 +216,22 @@ final class PlanRepository
         $active = !empty($data['active']) ? 1 : 0;
         $published = !empty($data['published']) ? 1 : 0;
 
-        if ($operatorId < 1 || $name === '' || $price <= 0 || $validity < 1) throw new RuntimeException('Operadora, nome, preço e validade são obrigatórios.');
-        if ($sourceUrl === '' || $sourceCheckedAt === '') throw new RuntimeException('Fonte e data de verificação são obrigatórias.');
+        if ($operatorId < 1 || $name === '' || !is_finite($price) || $price <= 0 || $validity < 1 || $validity > 365) throw new RuntimeException('Operadora, nome, preço e validade são obrigatórios.');
+        if (!SourceFetcher::allowed($sourceUrl) || !preg_match('/\A\d{4}-\d{2}-\d{2}\z/D',$sourceCheckedAt) || date('Y-m-d', strtotime($sourceCheckedAt) ?: 0) !== $sourceCheckedAt || $sourceCheckedAt > date('Y-m-d')) throw new RuntimeException('Use uma fonte oficial permitida e uma data de confirmação válida, sem datas futuras.');
+        $this->assertSourceOperator($operatorId, $sourceUrl);
         $cleanBenefits = $this->cleanBenefits($benefits);
         if ($cleanBenefits === []) throw new RuntimeException('Adicione pelo menos um benefício válido ao plano.');
 
+        $rules = PlanRules::normalize((array) ($data['rules'] ?? []));
+        if (!$this->hasRules() && !empty($data['rules'])) throw new RuntimeException('Importe a migração de inteligência do catálogo antes de guardar regras.');
         $isNew = $planId === 0;
-        $this->db->beginTransaction();
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) $this->db->beginTransaction();
         try {
             if ($planId > 0) {
+                $lock = $this->db->prepare('SELECT id FROM plans WHERE id=? FOR UPDATE');
+                $lock->execute([$planId]);
+                if (!$lock->fetchColumn()) throw new RuntimeException('Plano inexistente.');
                 $stmt = $this->db->prepare('UPDATE plans SET operator_id=?, name=?, active=?, published=?, updated_at=NOW() WHERE id=?');
                 $stmt->execute([$operatorId, $name, $active, $published, $planId]);
                 $versionStmt = $this->db->prepare('SELECT COALESCE(MAX(version_no),0) FROM plan_versions WHERE plan_id=?');
@@ -241,11 +252,14 @@ final class PlanRepository
             foreach ($cleanBenefits as $benefit) {
                 $benefitStmt->execute([$versionId,$benefit['type'],$benefit['quantity'],$benefit['unit'],$benefit['network_scope'],$benefit['start_time'],$benefit['end_time'],$benefit['app_scope'],$benefit['label']]);
             }
+            if ($this->hasRules()) {
+                $this->db->prepare('INSERT INTO plan_version_rules (plan_version_id,rules_json) VALUES (?,?)')->execute([$versionId, json_encode($rules, JSON_UNESCAPED_UNICODE)]);
+            }
             $this->audit($adminId, 'plan', $planId, $isNew ? 'create_plan' : 'save_plan', ['version'=>$versionNo,'name'=>$name]);
-            $this->db->commit();
+            if ($ownsTransaction) $this->db->commit();
             return $planId;
         } catch (Throwable $e) {
-            $this->db->rollBack();
+            if ($ownsTransaction && $this->db->inTransaction()) $this->db->rollBack();
             throw $e;
         }
     }
@@ -266,12 +280,14 @@ final class PlanRepository
         $isDefault = !empty($data['is_default']) ? 1 : 0;
 
         if ($operatorId < 1 || $name === '') throw new RuntimeException('Operadora e nome da tarifa são obrigatórios.');
-        if ($sourceUrl === '' || $sourceCheckedAt === '') throw new RuntimeException('Fonte e data de verificação são obrigatórias.');
+        if (!SourceFetcher::allowed($sourceUrl) || !preg_match('/\A\d{4}-\d{2}-\d{2}\z/D',$sourceCheckedAt) || date('Y-m-d', strtotime($sourceCheckedAt) ?: 0) !== $sourceCheckedAt || $sourceCheckedAt > date('Y-m-d')) throw new RuntimeException('Use uma fonte oficial permitida e uma data de confirmação válida, sem datas futuras.');
+        $this->assertSourceOperator($operatorId, $sourceUrl);
         $cleanRates = $this->cleanRates($rates);
         if ($cleanRates === []) throw new RuntimeException('Adicione pelo menos uma tarifa válida.');
 
         $isNew = $tariffId === 0;
-        $this->db->beginTransaction();
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) $this->db->beginTransaction();
         try {
             if ($isDefault) {
                 $clear = $this->db->prepare('UPDATE tariffs SET is_default=0, updated_at=NOW() WHERE operator_id=? AND id<>?');
@@ -300,10 +316,10 @@ final class PlanRepository
                 $rateStmt->execute([$versionId,$rate['service_type'],$rate['unit'],$rate['price_kz_per_unit'],$rate['network_scope'],$rate['start_time'],$rate['end_time'],$rate['label']]);
             }
             $this->audit($adminId, 'tariff', $tariffId, $isNew ? 'create_tariff' : 'save_tariff', ['version'=>$versionNo,'name'=>$name]);
-            $this->db->commit();
+            if ($ownsTransaction) $this->db->commit();
             return $tariffId;
         } catch (Throwable $e) {
-            $this->db->rollBack();
+            if ($ownsTransaction && $this->db->inTransaction()) $this->db->rollBack();
             throw $e;
         }
     }
@@ -341,6 +357,10 @@ final class PlanRepository
         }
 
         $stats['last_checked'] = $this->maxDate($planLastChecked, $tariffLastChecked);
+        if ($this->db->query("SHOW TABLES LIKE 'catalog_proposals'")->fetchColumn()) {
+            $stats['source_changes'] = (int) $this->db->query("SELECT COUNT(DISTINCT source_id) FROM catalog_proposals WHERE state='pending'")->fetchColumn();
+            return $stats;
+        }
         $stats['source_changes'] = (int) $this->db->query("SELECT COUNT(*) FROM source_checks sc INNER JOIN (SELECT source_url,MAX(id) max_id FROM source_checks GROUP BY source_url) latest ON latest.max_id=sc.id WHERE sc.changed=1")->fetchColumn();
         return $stats;
     }
@@ -374,9 +394,13 @@ final class PlanRepository
             $quantity = (float) ($benefit['quantity'] ?? 0);
             $unit = strtoupper(trim((string) ($benefit['unit'] ?? '')));
             $networkScope = strtoupper(trim((string) ($benefit['network_scope'] ?? 'ALL')));
-            if (!in_array($type, ['DATA','VOICE','SMS','SOCIAL'], true) || $quantity <= 0) continue;
-            if (!in_array($unit, ['MB','MIN','SMS'], true)) continue;
-            if (!in_array($networkScope, ['ALL','ONNET','OFFNET'], true)) $networkScope = 'ALL';
+            if ($quantity === 0.0 && trim((string) ($benefit['quantity'] ?? '')) === '') continue;
+            if (!in_array($type, ['DATA','VOICE','SMS','SOCIAL'], true) || !is_finite($quantity) || $quantity <= 0) throw new RuntimeException('Benefício com tipo ou quantidade inválidos.');
+            $expected = ['DATA'=>'MB','SOCIAL'=>'MB','VOICE'=>'MIN','SMS'=>'SMS'][$type];
+            if ($unit !== $expected || !in_array($networkScope, ['ALL','ONNET','OFFNET'], true)) throw new RuntimeException('Unidade ou rede incompatível com o benefício.');
+            $start = trim((string) ($benefit['start_time'] ?? ''));
+            $end = trim((string) ($benefit['end_time'] ?? ''));
+            if (($start === '') !== ($end === '') || ($start !== '' && (!preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9])?$/', $start) || !preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9])?$/', $end)))) throw new RuntimeException('Indique início e fim válidos para a restrição de horário.');
             $clean[] = [
                 'type'=>$type,'quantity'=>$quantity,'unit'=>$unit,'network_scope'=>$networkScope,
                 'start_time'=>trim((string) ($benefit['start_time'] ?? '')) ?: null,
@@ -396,10 +420,13 @@ final class PlanRepository
             $unit = strtoupper(trim((string) ($rate['unit'] ?? '')));
             $price = (float) ($rate['price_kz_per_unit'] ?? 0);
             $networkScope = strtoupper(trim((string) ($rate['network_scope'] ?? 'ALL')));
-            if (!in_array($type, ['DATA','VOICE','SMS'], true) || $price <= 0) continue;
+            if ($price === 0.0 && trim((string) ($rate['price_kz_per_unit'] ?? '')) === '') continue;
+            if (!in_array($type, ['DATA','VOICE','SMS'], true) || !is_finite($price) || $price <= 0) throw new RuntimeException('Serviço ou preço inválido na tarifa.');
             $expectedUnit = ['DATA'=>'MB','VOICE'=>'MIN','SMS'=>'SMS'][$type];
-            if ($unit !== $expectedUnit) $unit = $expectedUnit;
-            if (!in_array($networkScope, ['ALL','ONNET','OFFNET'], true)) $networkScope = 'ALL';
+            if ($unit !== $expectedUnit || !in_array($networkScope, ['ALL','ONNET','OFFNET'], true)) throw new RuntimeException('Unidade ou rede incompatível com a tarifa.');
+            $start = trim((string) ($rate['start_time'] ?? ''));
+            $end = trim((string) ($rate['end_time'] ?? ''));
+            if (($start === '') !== ($end === '') || ($start !== '' && (!preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9])?$/', $start) || !preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9])?$/', $end)))) throw new RuntimeException('Indique início e fim válidos para o horário da tarifa.');
             $clean[] = [
                 'service_type'=>$type,'unit'=>$unit,'price_kz_per_unit'=>$price,'network_scope'=>$networkScope,
                 'start_time'=>trim((string) ($rate['start_time'] ?? '')) ?: null,
@@ -410,12 +437,49 @@ final class PlanRepository
         return $clean;
     }
 
+    private function assertSourceOperator(int $operatorId, string $url): void
+    {
+        $stmt = $this->db->prepare('SELECT slug FROM operators WHERE id=?');
+        $stmt->execute([$operatorId]);
+        $host = ['unitel'=>'unitel.ao','africell'=>'africell.ao','movicel'=>'movicel.co.ao'][$stmt->fetchColumn() ?: ''] ?? null;
+        if (!$host || !in_array(strtolower((string) parse_url($url, PHP_URL_HOST)), [$host,'www.' . $host, ...($host === 'movicel.co.ao' ? ['www2.movicel.co.ao'] : [])], true)) throw new RuntimeException('A fonte não corresponde à operadora escolhida.');
+    }
+
     private function appendOperatorFilter(array &$where, array &$params, array $operatorIds, string $column): void
     {
         $operatorIds = array_values(array_filter(array_map('intval', $operatorIds), static fn ($id) => $id > 0));
         if ($operatorIds === []) return;
         $where[] = $column . ' IN (' . implode(',', array_fill(0, count($operatorIds), '?')) . ')';
         array_push($params, ...$operatorIds);
+    }
+
+    public function hasRules(): bool
+    {
+        if ($this->rulesAvailable === null) $this->rulesAvailable = (bool) $this->db->query("SHOW TABLES LIKE 'plan_version_rules'")->fetchColumn();
+        return $this->rulesAvailable;
+    }
+
+    private function attachRules(array $plans): array
+    {
+        $rules = [];
+        if ($this->hasRules() && $plans !== []) {
+            $ids = array_column($plans, 'version_id');
+            $stmt = $this->db->prepare('SELECT * FROM plan_version_rules WHERE plan_version_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')');
+            $stmt->execute($ids);
+            foreach ($stmt->fetchAll() as $row) $rules[$row['plan_version_id']] = json_decode($row['rules_json'], true) ?: [];
+        }
+        $observed = [];
+        if ($plans !== [] && $this->db->query("SHOW TABLES LIKE 'catalog_reviews'")->fetchColumn()) {
+            $ids = array_column($plans,'version_id');
+            $stmt = $this->db->prepare("SELECT r.version_id,MAX(s.last_success_at) AS observed_at FROM catalog_reviews r JOIN catalog_snapshots x ON x.id=r.snapshot_id JOIN catalog_sources s ON s.id=x.source_id WHERE r.version_id IN (" . implode(',',array_fill(0,count($ids),'?')) . ") AND s.enabled=1 AND s.status='verified' AND s.last_error IS NULL AND r.snapshot_id=(SELECT MAX(id) FROM catalog_snapshots WHERE source_id=s.id) GROUP BY r.version_id");
+            $stmt->execute($ids);
+            foreach ($stmt->fetchAll() as $row) $observed[$row['version_id']] = $row['observed_at'];
+        }
+        foreach ($plans as &$plan) {
+            $plan['rules'] = $rules[$plan['version_id']] ?? ['category'=>'mobile','repeat_policy'=>'unknown'];
+            $plan['source_observed_at'] = $observed[$plan['version_id']] ?? null;
+        }
+        return $plans;
     }
 
     private function hasTariffTables(): bool

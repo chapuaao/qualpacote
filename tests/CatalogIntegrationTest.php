@@ -1,0 +1,83 @@
+<?php
+declare(strict_types=1);
+require_once dirname(__DIR__) . '/app/PlanRepository.php';
+require_once dirname(__DIR__) . '/app/SourceDocument.php';
+require_once dirname(__DIR__) . '/app/CatalogRepository.php';
+require_once dirname(__DIR__) . '/app/UsageRepository.php';
+use QualPacote\PlanRepository;
+use QualPacote\CatalogRepository;
+use QualPacote\UsageRepository;
+date_default_timezone_set('Africa/Luanda');
+function catalog_expect(bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); }
+function catalog_reject(callable $action, string $message): void { try { $action(); } catch (Throwable) { return; } throw new RuntimeException($message); }
+$dsn = getenv('QUALPACOTE_TEST_DSN');
+if (!$dsn || !str_starts_with($dsn,'mysql:') || str_contains(strtolower($dsn),'dbname')) throw new RuntimeException('Use QUALPACOTE_TEST_DSN de testes, sem dbname.');
+$db = new PDO($dsn,getenv('QUALPACOTE_TEST_USER') ?: 'root',getenv('QUALPACOTE_TEST_PASSWORD') ?: '',[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);
+$name = 'qualpacote_catalog_test_' . bin2hex(random_bytes(6)); $db->exec("CREATE DATABASE `$name` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+try {
+ $db->exec("USE `$name`");
+ $db->exec(file_get_contents(dirname(__DIR__) . '/database/schema.sql'));
+ $db->exec(file_get_contents(dirname(__DIR__) . '/database/seed.sql'));
+ foreach (glob(dirname(__DIR__) . '/database/migrations/catalog_20260926/*.sql') as $file) $db->exec(file_get_contents($file));
+ $migration=file_get_contents(dirname(__DIR__) . '/database/migrations/20261011_catalog_intelligence.sql'); $db->exec($migration); $db->exec($migration);
+ $repo = new PlanRepository($db); $before=count($repo->activePlans());
+ $verified=file_get_contents(dirname(__DIR__) . '/database/migrations/20261011_catalog_verified.sql'); $db->exec($verified);
+ catalog_expect(count($repo->activePlans()) === $before+20,'Migração acrescenta 20 ofertas sem duplicar as quatro Afrimix');
+ $versions=(int)$db->query('SELECT COUNT(*) FROM plan_versions')->fetchColumn(); $benefits=(int)$db->query('SELECT COUNT(*) FROM benefits')->fetchColumn();
+ $db->exec($verified);
+ catalog_expect((int)$db->query('SELECT COUNT(*) FROM plan_versions')->fetchColumn() === $versions && (int)$db->query('SELECT COUNT(*) FROM benefits')->fetchColumn() === $benefits, 'Reimportação preserva versões e benefícios');
+ $flex = array_values(array_filter($repo->activePlans(),static fn($p)=>$p['name']==='FLEX 25'))[0];
+ catalog_expect($flex['source_checked_at'] === '2026-09-26' && $flex['rules']['family']==='flex','Revisão de regras não falsifica confirmação de preços FLEX');
+ $db->exec("INSERT INTO admins (email,password_hash,active,created_at) VALUES ('catalog-test@example.test','unused',1,NOW())"); $admin=(int)$db->lastInsertId();
+ $catalog = new CatalogRepository($db); $catalog->seedSources();
+ $sources=$catalog->sources(); $source=array_values(array_filter($sources,static fn($s)=>$s['adapter']==='afrimix'))[0];
+ $body=file_get_contents(__DIR__ . '/fixtures/afrimix.html');
+ $first=$catalog->recordDocument($source,$body);
+ catalog_expect(count($catalog->proposals())>=4,'Extracção prepara propostas sem publicar');
+ $proposal=array_values(array_filter($catalog->proposals(),static fn($p)=>$p['name']==='Afrimix 3D 300'))[0];
+ $catalog->fail((int)$source['id'],'HTTP 503');
+ catalog_expect($catalog->proposal((int)$proposal['id'])['state']==='pending','Falha posterior não apaga proposta');
+ $same=$catalog->recordDocument($source,str_replace('rodapé sem condições tarifárias','novo rodapé',$body));
+ catalog_expect(!$same['changed'] && $same['snapshot_id']===$first['snapshot_id'],'Mudança de rodapé não exige revisão');
+ $planId=$catalog->approve((int)$proposal['id'],$admin);
+ catalog_expect($catalog->proposal((int)$proposal['id'])['state']==='approved' && (int)$repo->findPlan($planId)['version_no']>=3,'Aprovação cria nova versão e evidência');
+ catalog_reject(fn()=>$catalog->approve((int)$proposal['id'],$admin),'Não aprovar duas vezes');
+ catalog_expect(!empty($repo->findPlan($planId)['source_observed_at']), 'Fonte inalterada fica ligada à versão especificamente revista');
+ $changed=$catalog->recordDocument($source,str_replace('Kz 300','Kz 350',$body));
+ catalog_expect(empty($repo->findPlan($planId)['source_observed_at']), 'Uma fonte alterada não continua a confirmar a versão antiga');
+ $latest=array_values(array_filter($catalog->proposals(),static fn($p)=>$p['name']==='Afrimix 3D 350'))[0];
+ catalog_expect((int)$latest['plan_id']===$planId, 'Alterar o preço actualiza a mesma oferta, não cria outro plano');
+ $catalog->recordDocument($source,str_replace('Kz 300','Kz 400',$body));
+ catalog_reject(fn()=>$catalog->approve((int)$latest['id'],$admin),'Revisão anterior da fonte não pode ser publicada');
+ // Concurrent manual plan editing invalidates a proposal based on an older version.
+ $latest=array_values(array_filter($catalog->proposals(),static fn($p)=>$p['name']==='Afrimix 3D 500'))[0];
+ $current=$repo->findPlan((int)$latest['plan_id']); $current['active']=1; $current['published']=1;
+ $repo->savePlan($current,$current['benefits'],$admin);
+ catalog_reject(fn()=>$catalog->approve((int)$latest['id'],$admin),'Versão alterada depois da proposta deve ser revista novamente');
+ $count=(int)$db->query('SELECT COUNT(*) FROM plan_versions')->fetchColumn();
+ $invalid=$catalog->propose($source,(int)$db->query('SELECT MAX(id) FROM catalog_snapshots WHERE source_id='.$source['id'])->fetchColumn(),['name'=>'Oferta incompleta']);
+ catalog_reject(fn()=>$catalog->approve($invalid,$admin),'Não publicar oferta sem preço e benefícios');
+ catalog_expect((int)$db->query('SELECT COUNT(*) FROM plan_versions')->fetchColumn()===$count,'Falha de aprovação não deixa versão parcial');
+ // Explicit evidence is required for every linked plan; another plan on the URL remains pending.
+ catalog_expect((int)$db->query('SELECT COUNT(*) FROM catalog_reviews')->fetchColumn()===1,'Rever um plano não dá a fonte inteira como revista');
+ $discovery=$catalog->register((int)$source['operator_id'],'https://www.africell.ao/ofertas/','Índice','discovery');
+ $source2=$catalog->source($discovery);
+ $catalog->recordDocument($source2,'<main>Lista oficial de ofertas disponíveis para clientes pré-pagos em Angola.<a href="/novo-pacote/">Novo pacote</a></main>');
+ catalog_expect((int)$db->query("SELECT COUNT(*) FROM catalog_sources WHERE url='https://www.africell.ao/novo-pacote/' AND status='discovered'")->fetchColumn()===1,'Descobrir novas fontes sem publicar planos');
+ catalog_reject(fn()=>$catalog->register((int)$source['operator_id'],'http://localhost/','Inválida'),'Fonte local deve ser recusada');
+ catalog_reject(fn()=>$catalog->register((int)$source['operator_id'],'https://www.unitel.ao/','Operadora errada'),'Não associar fonte de outra operadora');
+ $badBenefit=$repo->findPlan($planId);$badBenefit['active']=1;$badBenefit['published']=1;
+ catalog_reject(fn()=>$repo->savePlan($badBenefit,[['type'=>'DATA','quantity'=>1,'unit'=>'MIN','network_scope'=>'ALL']],$admin),'Não publicar unidade incompatível com o serviço');
+ $pdf=$catalog->register((int)$source['operator_id'],'https://www.africell.ao/regras.pdf','Documento','document');
+ $pdfSource=$catalog->source($pdf); $bytes='%PDF-1.7 '.str_repeat('test-document ',8); $snapshot=$catalog->recordDocument($pdfSource,$bytes);
+ $saved=$db->query('SELECT evidence_blob FROM catalog_snapshots WHERE id='.$snapshot['snapshot_id'])->fetchColumn();
+ catalog_expect($saved===$bytes,'Guardar o documento original permite rever a evidência exacta');
+ $user=new UsageRepository($db); $visitor=hash('sha256','catalog-visitor');$user->recordVisit($visitor);
+ $p=$repo->findPlan($planId);$result=['kind'=>'plan','is_combination'=>true,'plan'=>$p,'operator_name'=>'Africell','title'=>'Combinação','components'=>[['plan'=>$p]],'result_key'=>'combination:'.hash('sha256','combo')];
+ $tokens=$user->recordConsultation($visitor,hash('sha256','combo-search'),['budget_kz'=>600,'services'=>['data'],'duration_days'=>7],[$result],'compare=1');
+ catalog_expect(isset($tokens[UsageRepository::resultKey($result)]),'Feedback identifica a combinação por todas as versões');
+ $user->vote($visitor,$tokens[UsageRepository::resultKey($result)]['vote_token'],1);
+ require_once __DIR__ . '/CatalogHttpTest.php';
+ catalog_http_checks($db,$name,$dsn,$admin,(int)$snapshot['snapshot_id']);
+ fwrite(STDOUT,"OK: CatalogIntegrationTest\n");
+} finally { $db->exec("DROP DATABASE `$name`"); }

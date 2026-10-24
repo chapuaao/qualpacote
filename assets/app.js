@@ -77,6 +77,7 @@
     const serviceInputs = [...form.querySelectorAll('[data-service-toggle]')];
     const priorityField = form.querySelector('[data-priority-field]');
     const callScopeField = form.querySelector('[data-call-scope-field]');
+    const smsScopeField = form.querySelector('[data-sms-scope-field]');
 
     const updateServices = () => {
         const selected = serviceInputs.filter((input) => input.checked).map((input) => input.value);
@@ -85,12 +86,23 @@
         });
         if (priorityField) priorityField.hidden = selected.length <= 1;
         if (callScopeField) callScopeField.hidden = !selected.includes('voice');
+        if (smsScopeField) smsScopeField.hidden = !selected.includes('sms');
 
         const priority = form.querySelector('[name="priority"]');
         if (priority && priority.value !== 'balanced' && !selected.includes(priority.value)) priority.value = 'balanced';
     };
     serviceInputs.forEach((input) => input.addEventListener('change', updateServices));
     updateServices();
+    const category = form.querySelector('[name="category"]');
+    const updateCategory = () => {
+        const router = category?.value === 'router';
+        const ready = form.querySelector('[data-router-ready-field]');
+        const active = form.querySelector('[data-active-plans-field]');
+        if (ready) ready.hidden = !router;
+        if (active) active.hidden = router;
+    };
+    category?.addEventListener('change', updateCategory);
+    updateCategory();
 
     const updateModes = () => {
         const dataMode = form.querySelector('[name="data_mode"]:checked')?.value;

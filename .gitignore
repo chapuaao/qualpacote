@@ -5,3 +5,10 @@
 .vscode/
 vendor/
 coverage/
+
+.intelligence/
+/docs/evidence/
+
+__pycache__/
+
+*.py[cod]

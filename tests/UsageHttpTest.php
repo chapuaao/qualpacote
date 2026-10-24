@@ -96,7 +96,7 @@ function usage_http_checks(PDO $db, string $name, string $dsn): void
         usage_expect($admin['status'] === 200 && str_contains($admin['body'], 'Últimas opiniões') && !str_contains($admin['body'], 'Estatísticas indisponíveis'), 'Admin lê métricas reais.');
         $bad = $request('/admin/?page=statistics&from=2026-02-30&to=2026-03-01', $other);
         usage_expect(str_contains($bad['body'], 'Escolha datas válidas'), 'Filtro inválido apresenta erro compreensível.');
-        foreach (['usage_results','usage_consultations','usage_visit_days','usage_visitors'] as $table) $db->exec("DROP TABLE $table");
+        foreach (['usage_result_details','usage_results','usage_consultations','usage_visit_days','usage_visitors'] as $table) $db->exec("DROP TABLE $table");
         $missing = $request('/?compare=1&budget_kz=2000&services[]=voice', $public);
         usage_expect($missing['status'] === 200 && str_contains($missing['body'],'result-card'), 'Migração pendente não interrompe recomendações.');
         $admin = $request('/admin/?page=statistics', $other);
