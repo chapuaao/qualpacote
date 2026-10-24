@@ -54,6 +54,11 @@
   "ci_inputs": {
     "engine-contracts": [
       "$RUNNER_TEMP/intelligence-engine-tests.txt"
+    ],
+    "php-checks": [
+      "$RUNNER_TEMP/qualpacote-php-lint.txt",
+      "$RUNNER_TEMP/qualpacote-php-unit.txt",
+      "$RUNNER_TEMP/qualpacote-php-integration.txt"
     ]
   }
 }

@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
   php:
     runs-on: ubuntu-latest
@@ -28,17 +31,30 @@ jobs:
           php-version: '8.2'
           extensions: pdo_mysql, mbstring, curl
       - name: Lint
-        run: find . -name "*.php" -not -path "./vendor/*" -print0 | xargs -0 -n1 php -l
+        shell: bash
+        run: find . -name "*.php" -not -path "./vendor/*" -print0 | xargs -0 -n1 php -l 2>&1 | tee "$RUNNER_TEMP/qualpacote-php-lint.txt"
       - name: Recommendation engine tests
+        shell: bash
         run: |
-          php tests/RecommendationEngineTest.php
-          php tests/RestrictionIntelligenceTest.php
-          php tests/SourceDocumentTest.php
+          {
+            php tests/RecommendationEngineTest.php || exit $?
+            php tests/RestrictionIntelligenceTest.php || exit $?
+            php tests/SourceDocumentTest.php || exit $?
+          } 2>&1 | tee "$RUNNER_TEMP/qualpacote-php-unit.txt"
       - name: Usage statistics integration tests
+        shell: bash
         env:
           QUALPACOTE_TEST_DSN: "mysql:host=127.0.0.1;port=3306;charset=utf8mb4"
           QUALPACOTE_TEST_USER: root
           QUALPACOTE_TEST_PASSWORD: test-password
         run: |
-          php tests/UsageStatisticsTest.php
-          php tests/CatalogIntegrationTest.php
+          {
+            php tests/UsageStatisticsTest.php || exit $?
+            php tests/CatalogIntegrationTest.php || exit $?
+          } 2>&1 | tee "$RUNNER_TEMP/qualpacote-php-integration.txt"
+      - name: Preserve public test evidence in Git
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EVIDENCE_STATUS: ${{ job.status }}
+        run: python3 tools/intelligence/ci.py --name php-checks --status "$EVIDENCE_STATUS" --publish
