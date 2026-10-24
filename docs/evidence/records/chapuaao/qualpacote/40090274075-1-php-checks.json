@@ -1,0 +1,51 @@
+{
+  "id": "40090274075-1-php-checks",
+  "interpretation": "Historical execution evidence; preservation does not certify current software.",
+  "kind": "execution",
+  "payload": {
+    "bytes": 1272,
+    "members": [
+      {
+        "bytes": 132,
+        "path": "runner/intelligence-context/40090274075-1-php-checks.json",
+        "sha256": "938f117fe51cd16a7f00c6a06d2ee301f6db2c460c69080ec06e47bf53455f3d"
+      },
+      {
+        "bytes": 207,
+        "path": "runner/qualpacote-php-integration.txt",
+        "sha256": "df5109d80d08e53ce1bb15aa2012eca90d83d707246d90da729811eea237c7ad"
+      },
+      {
+        "bytes": 1625,
+        "path": "runner/qualpacote-php-lint.txt",
+        "sha256": "6ebcc300b6b1bc5d5b41609dab45fbd6cd0f60085de629964bf49481519f20d7"
+      },
+      {
+        "bytes": 84,
+        "path": "runner/qualpacote-php-unit.txt",
+        "sha256": "86eb3a3b7bdcb85b8559f6ec28de6c703189dacb3108d25399c10969aadb66c5"
+      }
+    ],
+    "path": "objects/sha256/a3/a32f41641667e3012526f4da57befcccc6560141d002dc37a660ed088483cc04.zip",
+    "sha256": "a32f41641667e3012526f4da57befcccc6560141d002dc37a660ed088483cc04"
+  },
+  "record_sha256": "b900183666e6bbbd947906a6fcf7230ad9a60781ee6e6e6c812fd427f961a334",
+  "schema": "IntelligenceEvidence/1",
+  "sensitivity": "publica",
+  "source": {
+    "attempt": "1",
+    "checkout_head": "1f322c296e35127da4cf4bd3a84eaccc1258b73e",
+    "commit": "1f322c296e35127da4cf4bd3a84eaccc1258b73e",
+    "commit_role": "checkout_head",
+    "configuration_sha256": "e7358118767e482f5fbc2f145705af9a70e67cfc4351aebcf1f049d2d0a51493",
+    "engine_sha256": "61d3914743d475fda1cdab24e4e2e5f6f8f970707c16c0059349af262708117e",
+    "event": "pull_request",
+    "job": "php",
+    "repository": "chapuaao/qualpacote",
+    "run_id": "40090274075",
+    "tracked_patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_sources_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "working_tree_dirty": false
+  },
+  "status": "success"
+}
